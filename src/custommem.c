@@ -3129,7 +3129,7 @@ void init_custommem_helper(box64context_t* ctx)
         return;
     inited = 1;
 
-    cur_brk = dlsym(RTLD_NEXT, "__curbrk");
+    /* OHOS_PATCH_NO_CURBRK: musl has no __curbrk */ cur_brk = NULL;
     init_mutexes();
     blockstree = rbtree_init("blockstree");
     // if there is some blocks already

@@ -1,3 +1,23 @@
+/* OHOS_PATCH_WRAPPEDLIBC_MORE */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <sched.h>
+extern const unsigned short **__ctype_b_loc(void);
+extern const int **__ctype_tolower_loc(void);
+extern const int **__ctype_toupper_loc(void);
+/* OHOS_PATCH_WRAPPEDLIBC_MORE END */
+/* OHOS_PATCH_WRAPPEDLIBC */
+#include <ctype.h>
+#include <pthread.h>
+#ifndef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP PTHREAD_MUTEX_INITIALIZER
+#endif
+#ifndef PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP
+#define PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP PTHREAD_MUTEX_INITIALIZER
+#endif
+typedef int (*__compar_d_fn_t)(const void *, const void *, void *);
+/* OHOS_PATCH_WRAPPEDLIBC END */
 #define _LARGEFILE_SOURCE 1
 #define _FILE_OFFSET_BITS 64
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
@@ -155,7 +175,31 @@ static void my_wrap_error_print_progname(void)
         *p = my_wrap_error_print_progname;                                            \
     }
 
+/* OHOS_UNDEF_BEFORE_CB */
+#undef stat64
+#undef fstat64
+#undef lstat64
+#undef fstatat64
+#undef fopen64
+#undef ftw64
+#undef nftw64
+#undef scandir64
+#undef open64
+#undef mmap64
+/* OHOS_UNDEF_BEFORE_CB END */
 #include "wrappercallback.h"
+/* OHOS_REDEF_AFTER_CB */
+#define stat64    stat
+#define fstat64   fstat
+#define lstat64   lstat
+#define fstatat64 fstatat
+#define fopen64   fopen
+#define ftw64     ftw
+#define nftw64    nftw
+#define scandir64 scandir
+#define open64    open
+#define mmap64    mmap
+/* OHOS_REDEF_AFTER_CB END */
 
 static int regs_abi[] = {_DI, _SI, _DX, _CX, _R8, _R9};
 void* getVargN(x64emu_t *emu, int n)
@@ -4315,7 +4359,7 @@ struct glibc_pthread {
 pid_t getGlibcCachedTid() {
   pthread_mutex_t lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
   pthread_mutex_lock(&lock);
-  pid_t tid = lock.__data.__owner;
+  pid_t tid = 0 /* musl: no __data.__owner */;
   pthread_mutex_unlock(&lock);
   pthread_mutex_destroy(&lock);
   return tid;
@@ -4746,12 +4790,12 @@ EXPORT char* secure_getenv(const char* name)
 #include "libtools/static_libc.h"
 #endif
 
-#ifndef STATICBUILD
-#define PRE_INIT\
-    if(1)                                                      \
-        lib->w.lib = dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);    \
-    else
-#endif
+/* OHOS_PATCH_NO_PRE_INIT_DLOPEN */
+/* PRE_INIT was: dlopen(NULL,...) -- disabled on OHOS musl, */
+/* see patch 19 notes. Empty macro is fine because the */
+/* template uses bare 'PRE_INIT' with no trailing ';' and the */
+/* following '{' becomes a plain compound statement.        */
+#define PRE_INIT
 
 #if defined(ANDROID)
 #ifdef STATICBUILD

@@ -216,7 +216,7 @@ box64context_t *NewBox64Context(int argc)
     context->exit_bridge = AddBridge(context->system, NULL, NULL, 0, NULL);
     // get handle to box64 itself
     #ifndef STATICBUILD
-    context->box64lib = dlopen(NULL, RTLD_NOW|RTLD_GLOBAL);
+    /* OHOS_PATCH_SKIP_BOX64LIB */ context->box64lib = NULL;
     #endif
     context->dlprivate = NewDLPrivate();
 

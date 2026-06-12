@@ -1,3 +1,11 @@
+/* OHOS_PATCH_RTLD_DEFAULT */
+/* OHOS_PATCH_DLINFO_CONSTS */
+#ifndef RTLD_DL_LINKMAP
+#define RTLD_DL_LINKMAP 2
+#endif
+#ifndef RTLD_DL_SYMENT
+#define RTLD_DL_SYMENT  1
+#endif
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 #include <stdio.h>
 #include <stdlib.h>
@@ -365,7 +373,7 @@ void* my_dlsym_internal(x64emu_t* emu, void *handle, void *symbol, int version, 
         return NULL;
     }
     if(handle==(void*)~0LL) {
-        // special case, look globably after self in the lm chain (RTLD_NEXT)
+        // special case, look globably after self in the lm chain (RTLD_DEFAULT)
         uintptr_t ret_addr = 0;
         #ifdef BOX32
         if(box64_is32bits)

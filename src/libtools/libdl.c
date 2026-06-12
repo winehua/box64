@@ -1,3 +1,5 @@
+/* OHOS_PATCH_LIBDL_RENAME_SHIMS */
+/* OHOS_PATCH_RTLD_DEFAULT */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
@@ -62,9 +64,9 @@ static void*(*real_dlopen)(const char*, int) = NULL;
 static int (*real_dlclose)(void*) = NULL;
 static void* (*real_dlsym)(void*, const char*) = NULL;
 
-EXPORT void* dlopen(const char* path, int flags)
+__attribute__((unused)) static void* box64_unused_dlopen(const char* path, int flags)
 {
-    if (!real_dlopen) real_dlopen = GetNativeSymbolUnversioned(RTLD_NEXT, "dlopen");
+    if (!real_dlopen) real_dlopen = GetNativeSymbolUnversioned(RTLD_DEFAULT, "dlopen");
 
     // will look only for libs loaded with full path (and only on 64bits for now)
     if(path && strchr(path, '/') && (/*(box64_is32bits && FileIsX86ELF(path)) ||*/ (!box64_is32bits && FileIsX64ELF(path)))) {
@@ -89,9 +91,9 @@ EXPORT void* dlopen(const char* path, int flags)
     return real_dlopen(path, flags);
 }
 
-EXPORT int dlclose(void* handle)
+__attribute__((unused)) static int box64_unused_dlclose(void* handle)
 {
-    if (!real_dlclose) real_dlclose = GetNativeSymbolUnversioned(RTLD_NEXT, "dlclose");
+    if (!real_dlclose) real_dlclose = GetNativeSymbolUnversioned(RTLD_DEFAULT, "dlclose");
 
     if((uintptr_t)handle>=HOOKLIB && (uintptr_t)handle<HOOKLIB+hooked_size) {
         uint32_t i = (uintptr_t)handle-HOOKLIB;
@@ -104,9 +106,9 @@ EXPORT int dlclose(void* handle)
     return real_dlclose(handle);
 }
 
-EXPORT void* dlsym(void* handle, const char* symbol)
+__attribute__((unused)) static void* box64_unused_dlsym(void* handle, const char* symbol)
 {
-    if (!real_dlsym) real_dlsym = GetNativeSymbolUnversioned(RTLD_NEXT, "dlsym");
+    if (!real_dlsym) real_dlsym = GetNativeSymbolUnversioned(RTLD_DEFAULT, "dlsym");
 
     if((uintptr_t)handle>=HOOKLIB && (uintptr_t)handle<HOOKLIB+hooked_size) {
         uint32_t i = (uintptr_t)handle-HOOKLIB;
@@ -119,4 +121,3 @@ EXPORT void* dlsym(void* handle, const char* symbol)
 
     return real_dlsym(handle, symbol);
 }
-EXPORT void* ___dlsym(void *handle, const char* symbol)  __attribute__((alias("dlsym")));

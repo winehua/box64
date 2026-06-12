@@ -2107,3 +2107,27 @@ if(BOX32)
             -D TEST_REFERENCE=${CMAKE_SOURCE_DIR}/tests32/ref23.txt
             -P ${CMAKE_SOURCE_DIR}/runTest.cmake )
 endif()
+
+# OHOS_PATCH_FTS_TARGET ====================================
+if(TARGET box64)
+    target_sources(box64 PRIVATE ${CMAKE_SOURCE_DIR}/src/musl_fts.c)
+endif()
+# =========================================
+
+# OHOS_PATCH_OBSTACK_TARGET ====================================
+if(TARGET box64)
+    target_sources(box64 PRIVATE ${CMAKE_SOURCE_DIR}/src/musl_obstack.c)
+endif()
+# =========================================
+
+# OHOS_PATCH_ERROR_H_TARGET ====================================
+if(TARGET box64)
+    target_sources(box64 PRIVATE ${CMAKE_SOURCE_DIR}/src/musl_error.c)
+endif()
+# =========================================
+
+# OHOS_PATCH_MUSL_COMPAT_TARGET ====================================
+if(TARGET box64)
+    target_sources(box64 PRIVATE ${CMAKE_SOURCE_DIR}/src/musl_compat.c)
+endif()
+# =========================================

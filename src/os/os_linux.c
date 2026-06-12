@@ -1,3 +1,5 @@
+/* OHOS_PATCH_RTLD_DEFAULT */
+/* OHOS_PATCH_MALLOPT */
 #define _GNU_SOURCE
 #include <sys/syscall.h>
 #include <sched.h>
@@ -150,9 +152,15 @@ void PersonalityAddrLimit32Bit(void)
         setrlimit(RLIMIT_DATA, &l);
     }*/
     // setting 32bits malloc options
+#ifdef M_ARENA_TEST
     mallopt(M_ARENA_TEST, 2);
+#endif
+#ifdef M_ARENA_MAX
     mallopt(M_ARENA_MAX, 2);
+#endif
+#ifdef M_MMAP_THRESHOLD
     mallopt(M_MMAP_THRESHOLD, 128*1024);
+#endif
     #endif
 }
 
@@ -170,7 +178,7 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
     typedef void* (*pFpLiiiL_t)(void*, unsigned long, int, int, int, size_t);
     static pFpLiiiL_t libc_mmap64 = NULL;
     if (grab) {
-        libc_mmap64 = dlsym(RTLD_NEXT, "mmap64");
+        libc_mmap64 = dlsym(RTLD_DEFAULT, "mmap64");
     }
     void* ret = libc_mmap64(addr, length, prot, flags, fd, offset);
 #endif
@@ -186,7 +194,7 @@ int InternalMunmap(void* addr, unsigned long length)
     typedef int (*iFpL_t)(void*, unsigned long);
     static iFpL_t libc_munmap = NULL;
     if (grab) {
-        libc_munmap = dlsym(RTLD_NEXT, "munmap");
+        libc_munmap = dlsym(RTLD_DEFAULT, "munmap");
     }
     int ret = libc_munmap(addr, length);
 #endif

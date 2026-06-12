@@ -1,3 +1,4 @@
+/* OHOS_PATCH_PTHREAD_CLEANUP */
 // __USE_UNIX98 is needed for sttype / gettype definition
 #define __USE_UNIX98
 #define _GNU_SOURCE
@@ -47,8 +48,6 @@ typedef struct emuthread_s emuthread_t;
 static vFppp_t real_pthread_cleanup_push_defer = NULL;
 static vFpi_t real_pthread_cleanup_pop_restore = NULL;
 static iFppip_t real_pthread_cond_clockwait = NULL;
-void _pthread_cleanup_push(void* buffer, void* routine, void* arg);	// declare hidden functions
-void _pthread_cleanup_pop(void* buffer, int exec);
 // with glibc 2.34+, pthread_kill changed behaviour and might break some program, so using old version if possible
 // it will be pthread_kill@GLIBC_2.17 on aarch64, but it's GLIBC_2.2.5 on x86_64
 static iFli_t real_phtread_kill_old = NULL;
@@ -960,12 +959,12 @@ EXPORT int my_pthread_kill_old(x64emu_t* emu, void* thread, int sig)
 	sig = signal_from_x64(sig);
     // check for old "is everything ok?"
     if((thread==NULL) && (sig==0))
-        return real_phtread_kill_old(pthread_self(), 0);
+        return real_phtread_kill_old((unsigned long)(uintptr_t)pthread_self(), 0);
 	#ifdef BAD_PKILL
 	if(sig==0 && thread!=(void*)pthread_self())
 		return get_thread(thread)?0:ESRCH;
 	#endif
-    return real_phtread_kill_old((pthread_t)thread, sig);
+    return real_phtread_kill_old((unsigned long)(uintptr_t)thread, sig);
 }
 
 //EXPORT void my_pthread_exit(x64emu_t* emu, void* retval)
@@ -1333,20 +1332,20 @@ void init_pthread_helper()
 	if(box64_is32bits)
 		init_pthread_helper_32();
 	#endif
-	real_pthread_cleanup_push_defer = (vFppp_t)dlsym(NULL, "_pthread_cleanup_push_defer");
-	real_pthread_cleanup_pop_restore = (vFpi_t)dlsym(NULL, "_pthread_cleanup_pop_restore");
-	real_pthread_cond_clockwait = (iFppip_t)dlsym(NULL, "pthread_cond_clockwait");
+	/* OHOS_PATCH_SKIP_PTHREAD_DLSYM */ real_pthread_cleanup_push_defer = NULL;
+	/* OHOS_PATCH_SKIP_PTHREAD_DLSYM */ real_pthread_cleanup_pop_restore = NULL;
+	/* OHOS_PATCH_SKIP_PTHREAD_DLSYM */ real_pthread_cond_clockwait = NULL;
 
-	// search for older symbol for pthread_kill
-	{
-		char buff[50];
-		for(int i=0; i<34 && !real_phtread_kill_old; ++i) {
-			snprintf(buff, 50, "GLIBC_2.%d", i);
-			real_phtread_kill_old = (iFli_t)dlvsym(NULL, "pthread_kill", buff);
-		}
-	}
-	if(!real_phtread_kill_old)
-		real_phtread_kill_old = (iFli_t)dlvsym(NULL, "pthread_kill", "GLIBC_2.2.5");
+/* 	// search for older symbol for pthread_kill */
+/* 	{ */
+/* 		char buff[50]; */
+/* 		for(int i=0; i<34 && !real_phtread_kill_old; ++i) { */
+/* 			snprintf(buff, 50, "GLIBC_2.%d", i); */
+/* 			real_phtread_kill_old = (iFli_t)dlvsym(NULL, "pthread_kill", buff); */
+/* 		} */
+/* 	} */
+/* 	if(!real_phtread_kill_old) */
+/* 		real_phtread_kill_old = (iFli_t)dlvsym(NULL, "pthread_kill", "GLIBC_2.2.5"); */
 	if(!real_phtread_kill_old) {
 		printf_log(LOG_INFO, "Warning, older then 2.34 pthread_kill not found, using current one\n");
 		real_phtread_kill_old = (iFli_t)pthread_kill;
