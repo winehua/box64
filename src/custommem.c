@@ -1576,7 +1576,7 @@ int MmaplistAddBlock(mmaplist_t* list, int fd, off_t offset, void* orig, size_t 
         map = box32_dynarec_mmap(size, fd, offset);
     #endif
     if(map==MAP_FAILED)
-        map = box_mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, offset);
+        map = InternalMmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, offset);
     if(map==MAP_FAILED) {
         printf_log(LOG_INFO, "Failed to Mmap a block of a maplist\n");
         return -3;
@@ -1593,7 +1593,7 @@ int MmaplistAddCompressedBlock(mmaplist_t* list, int type, void* src, size_t src
         map = box32_dynarec_mmap(size, -1, 0);
     #endif
     if(map==MAP_FAILED)
-        map = box_mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+        map = InternalMmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if(map==MAP_FAILED) {
         printf_log(LOG_INFO, "Failed to Alloc a block of a maplist\n");
         return -3;
@@ -1802,7 +1802,7 @@ uintptr_t AllocDynarecMap(uintptr_t x64_addr, size_t size, int is_new)
     }
     #endif
     if(p==MAP_FAILED)
-        p = box_mmap(NULL, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+        p = InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     if(p==MAP_FAILED) {
         dynarec_log(LOG_INFO, "Cannot create dynamic map of %zu bytes (%s)\n", allocsize, strerror(errno));
         return 0;
@@ -3332,7 +3332,7 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
     } else if (box64_wine || 1) {   // other mmap should be restricted to 47bits
         if (!(flags&MAP_FIXED) && !addr) {
             addr = find47bitBlock(length);
-            printf_log(LOG_NONE, "box_mmap: find47bitBlock(size=0x%lx) returned hint=%p, old_addr=%p\n", length, addr, old_addr);
+            printf_log(LOG_DEBUG, "box_mmap: find47bitBlock(size=0x%lx) returned hint=%p, old_addr=%p\n", length, addr, old_addr);
         }
     }
     #endif
