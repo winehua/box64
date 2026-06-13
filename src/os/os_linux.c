@@ -169,10 +169,62 @@ int IsAddrElfOrFileMapped(uintptr_t addr)
     return FindElfAddress(my_context, addr) || IsAddrFileMappedNoMemFD(addr);
 }
 
+#include <stdio.h>
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset)
 {
 #if 1 // def STATICBUILD
+    // OHOS JIT: 在 PROT_EXEC 操作前打开内核 JIT 开关
+    int need_jit = (prot & PROT_EXEC) ? 1 : 0;
+    if (need_jit) syscall(__NR_prctl, 0x6a6974, 0, 0);
     void* ret = (void*)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
+    // OHOS: 绝不能关闭 JIT！进程后续还需要 mprotect(PROT_EXEC)
+    // (如 NewBrick, box_mmap fallback 等)
+    // if (need_jit) syscall(__NR_prctl, 0x6a6974, 0, 1);  // 已移除
+#ifdef __OHOS__
+    // OHOS noexec 文件系统回退: 文件映射 + PROT_EXEC 会返回 EPERM
+    // 改用匿名 mmap + pread 读取文件内容
+    if (ret == MAP_FAILED && errno == EPERM && fd != -1 && (prot & PROT_EXEC)) {
+        int saved_errno2 = errno;
+        fprintf(stderr, "[BOX64] InternalMmap: noexec-fs fallback START (fd=%d, len=0x%lx, prot=0x%x, off=%ld, addr=%p)\n",
+            fd, length, prot, (long)offset, addr);
+        int anon_flags = MAP_PRIVATE | MAP_ANONYMOUS | (flags & MAP_FIXED);
+        // pread 需要 PROT_WRITE, 所以匿名 mmap 用 prot|PROT_WRITE
+        int anon_prot = prot | PROT_WRITE;
+        void* ret2 = (void*)syscall(__NR_mmap, addr, length, anon_prot, anon_flags, -1, 0);
+        fprintf(stderr, "[BOX64] InternalMmap: anon mmap → %p errno=%d(%s)\n", ret2, errno, strerror(errno));
+        if (ret2 == MAP_FAILED && addr && !(flags & MAP_FIXED)) {
+            ret2 = (void*)syscall(__NR_mmap, NULL, length, anon_prot, anon_flags, -1, 0);
+            fprintf(stderr, "[BOX64] InternalMmap: anon mmap(NULL) → %p errno=%d(%s)\n", ret2, errno, strerror(errno));
+        }
+        if (ret2 != MAP_FAILED) {
+            ssize_t n = pread(fd, ret2, length, offset);
+            fprintf(stderr, "[BOX64] InternalMmap: pread → %zd errno=%d(%s)\n", n, errno, strerror(errno));
+            if (n < 0) {
+                // pread 可能对某些 fd 类型失败, 尝试 lseek+read
+                off_t old_off = lseek(fd, 0, SEEK_CUR);
+                fprintf(stderr, "[BOX64] InternalMmap: lseek(SEEK_CUR) → %ld errno=%d(%s)\n", (long)old_off, errno, strerror(errno));
+                if (old_off != (off_t)-1) {
+                    off_t seeked = lseek(fd, offset, SEEK_SET);
+                    fprintf(stderr, "[BOX64] InternalMmap: lseek(SEEK_SET, %ld) → %ld errno=%d(%s)\n", (long)offset, (long)seeked, errno, strerror(errno));
+                    n = read(fd, ret2, length);
+                    fprintf(stderr, "[BOX64] InternalMmap: read → %zd errno=%d(%s)\n", n, errno, strerror(errno));
+                    lseek(fd, old_off, SEEK_SET);
+                }
+            }
+            if (n >= 0) {
+                fprintf(stderr, "[BOX64] InternalMmap: noexec-fs fallback: anon+pread OK at %p (fd=%d, len=0x%lx, prot=0x%x)\n",
+                    ret2, fd, length, prot);
+                ret = ret2;
+            } else {
+                fprintf(stderr, "[BOX64] InternalMmap: noexec-fs fallback FAILED, read returned %zd, unmapping\n", n);
+                syscall(__NR_munmap, ret2, length);
+                errno = saved_errno2;
+            }
+        } else {
+            fprintf(stderr, "[BOX64] InternalMmap: noexec-fs fallback: anon mmap FAILED\n");
+        }
+    }
+#endif
 #else
     static int grab = 1;
     typedef void* (*pFpLiiiL_t)(void*, unsigned long, int, int, int, size_t);
@@ -182,6 +234,10 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
     }
     void* ret = libc_mmap64(addr, length, prot, flags, fd, offset);
 #endif
+    if(ret == MAP_FAILED) {
+        fprintf(stderr, "[BOX64] InternalMmap(addr=%p, len=0x%lx, prot=0x%x, flags=0x%x, fd=%d, off=%ld) FAILED errno=%d(%s)\n",
+            addr, length, prot, flags, fd, (long)offset, errno, strerror(errno));
+    }
     return ret;
 }
 

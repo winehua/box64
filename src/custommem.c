@@ -1576,7 +1576,7 @@ int MmaplistAddBlock(mmaplist_t* list, int fd, off_t offset, void* orig, size_t 
         map = box32_dynarec_mmap(size, fd, offset);
     #endif
     if(map==MAP_FAILED)
-        map = InternalMmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, offset);
+        map = box_mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE, fd, offset);
     if(map==MAP_FAILED) {
         printf_log(LOG_INFO, "Failed to Mmap a block of a maplist\n");
         return -3;
@@ -1593,7 +1593,7 @@ int MmaplistAddCompressedBlock(mmaplist_t* list, int type, void* src, size_t src
         map = box32_dynarec_mmap(size, -1, 0);
     #endif
     if(map==MAP_FAILED)
-        map = InternalMmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+        map = box_mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if(map==MAP_FAILED) {
         printf_log(LOG_INFO, "Failed to Alloc a block of a maplist\n");
         return -3;
@@ -1802,7 +1802,7 @@ uintptr_t AllocDynarecMap(uintptr_t x64_addr, size_t size, int is_new)
     }
     #endif
     if(p==MAP_FAILED)
-        p = InternalMmap(NULL, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+        p = box_mmap(NULL, allocsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     if(p==MAP_FAILED) {
         dynarec_log(LOG_INFO, "Cannot create dynamic map of %zu bytes (%s)\n", allocsize, strerror(errno));
         return 0;
@@ -3311,8 +3311,9 @@ void getLockAddressRange(uintptr_t start, size_t size, uintptr_t addrs[])
 }
 #endif
 
+#include <sys/mman.h>
 #ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x200000
+#define MAP_FIXED_NOREPLACE 0x100000   // aarch64 value, NOT x86_64 0x200000
 #endif
 #ifndef MAP_32BIT
 #define MAP_32BIT 0x40
@@ -3329,11 +3330,48 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
         // MAP_32BIT only exist on x86_64!
         addr = find31bitBlockNearHint(old_addr, length, 0);
     } else if (box64_wine || 1) {   // other mmap should be restricted to 47bits
-        if (!(flags&MAP_FIXED) && !addr)
+        if (!(flags&MAP_FIXED) && !addr) {
             addr = find47bitBlock(length);
+            printf_log(LOG_NONE, "box_mmap: find47bitBlock(size=0x%lx) returned hint=%p, old_addr=%p\n", length, addr, old_addr);
+        }
     }
     #endif
     void* ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
+    if(ret == MAP_FAILED) {
+        int saved_errno = errno;
+        printf_log(LOG_NONE, "box_mmap: InternalMmap(addr=%p, len=0x%lx, prot=0x%x, flags=0x%x, fd=%d) FAILED errno=%d(%s)\n",
+            addr, length, prot, new_flags, fd, saved_errno, strerror(saved_errno));
+        // Fallback 1: if the kernel rejected the hint, retry with NULL
+        if (addr && !(flags&MAP_FIXED)) {
+            void* ret2 = InternalMmap(NULL, length, prot, new_flags, fd, offset);
+            if (ret2 != MAP_FAILED) {
+                printf_log(LOG_NONE, "box_mmap: NULL fallback succeeded at %p (was addr=%p)\n", ret2, addr);
+                ret = ret2;
+                errno = saved_errno;
+            } else {
+                printf_log(LOG_NONE, "box_mmap: NULL fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
+            }
+        }
+        // Fallback 2: OHOS sandbox may block RWX, try RW + mprotect
+        if (ret == MAP_FAILED && fd == -1 && (prot & PROT_EXEC)) {
+            int rwprot = prot & ~PROT_EXEC;
+            void* ret3 = InternalMmap(addr, length, rwprot, new_flags, fd, offset);
+            if (ret3 == MAP_FAILED && addr) {
+                ret3 = InternalMmap(NULL, length, rwprot, new_flags, fd, offset);
+            }
+            if (ret3 != MAP_FAILED) {
+                if (mprotect(ret3, length, prot) == 0) {
+                    printf_log(LOG_NONE, "box_mmap: RW+mprotect fallback succeeded at %p\n", ret3);
+                    ret = ret3;
+                } else {
+                    printf_log(LOG_NONE, "box_mmap: RW+mprotect fallback mprotect FAILED errno=%d(%s)\n", errno, strerror(errno));
+                    InternalMunmap(ret3, length);
+                }
+            } else {
+                printf_log(LOG_NONE, "box_mmap: RW fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
+            }
+        }
+    }
     // io_uring doesn't support non-NULL address.
     // The optimal approach is to detect whether an fd is an io_uring instance,
     // but this is overly complex. So we simply retry the mmap call with the

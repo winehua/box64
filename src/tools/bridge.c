@@ -53,15 +53,26 @@ brick_t* NewBrick(void* old, int is32bits)
         if(old)
             old = old + NBRICK * sizeof(onebridge_t);
     }
-    void* ptr = box_mmap(old, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0); // 0x40 is MAP_32BIT
+    int new_flags = MAP_PRIVATE | ((!is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS;
+    size_t sz = NBRICK * sizeof(onebridge_t);
+
+    // OHOS: try RW first, then mprotect to add X
+    void* ptr = box_mmap(old, sz, PROT_READ | PROT_WRITE, new_flags, -1, 0);
     if(ptr == MAP_FAILED)
-        ptr = box_mmap(NULL, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | ((!is32bits && box64_wine)?0:0x40) | MAP_ANONYMOUS, -1, 0);
-    if(ptr == MAP_FAILED) {
-        printf_log(LOG_NONE, "Warning, cannot allocate 0x%lx aligned bytes for bridge, will probably crash later\n", NBRICK*sizeof(onebridge_t));
+        ptr = box_mmap(NULL, sz, PROT_READ | PROT_WRITE, new_flags, -1, 0);
+    if(ptr != MAP_FAILED) {
+        if(mprotect(ptr, sz, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+            printf_log(LOG_NONE, "Warning: NewBrick mprotect(RW→RWX) failed at %p, errno=%d(%s)\n", ptr, errno, strerror(errno));
+            // keep the RW mapping anyway, it might still work for some things
+        }
+    } else {
+        printf_log(LOG_NONE, "Warning: NewBrick RW mmap(old=%p, size=0x%lx) failed, errno=%d(%s)\n",
+            old, sz, errno, strerror(errno));
+        printf_log(LOG_NONE, "Warning, cannot allocate 0x%lx aligned bytes for bridge\n", sz);
     }
-    setProtection_box((uintptr_t)ptr, NBRICK * sizeof(onebridge_t), PROT_READ | PROT_WRITE | PROT_EXEC | PROT_NOPROT);
-    dynarec_log(LOG_INFO, "New Bridge brick at %p (size 0x%zx)\n", ptr, NBRICK*sizeof(onebridge_t));
-    if(is32bits) load_addr_32bits = ptr + NBRICK*sizeof(onebridge_t);
+    setProtection_box((uintptr_t)ptr, sz, PROT_READ | PROT_WRITE | PROT_EXEC | PROT_NOPROT);
+    dynarec_log(LOG_INFO, "New Bridge brick at %p (size 0x%zx)\n", ptr, sz);
+    if(is32bits) load_addr_32bits = ptr + sz;
     ret->b = ptr;
     return ret;
 }

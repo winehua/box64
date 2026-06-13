@@ -1,4 +1,5 @@
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
+#include <stdio.h>
 #include <unistd.h>
 #include <stdint.h>
 
@@ -36,7 +37,10 @@ extern box64env_t box64env;
 EXPORT void* mmap64(void *addr, unsigned long length, int prot, int flags, int fd, ssize_t offset)
 {
     void* ret;
-    if(!addr && ((running32bits && BOX64ENV(mmap32)) || (flags&MAP_32BIT) || box64_is32bits))
+    int add_32bit = (!addr && ((running32bits && BOX64ENV(mmap32)) || (flags&MAP_32BIT) || box64_is32bits));
+    fprintf(stderr, "[BOX64] mmap64 WRAPPER: addr=%p len=0x%lx prot=0x%x flags=0x%x fd=%d add32=%d running32=%d env_mmap32=%d is32=%d\n",
+        addr, length, prot, flags, fd, add_32bit, running32bits, BOX64ENV(mmap32), box64_is32bits);
+    if(add_32bit)
         ret = box_mmap(addr, length, prot, flags | MAP_32BIT, fd, offset);
     else
         ret = InternalMmap(addr, length, prot, flags, fd, offset);
