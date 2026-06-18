@@ -1271,7 +1271,7 @@ void* internal_customMemAligned(size_t align, size_t size, int is32bits)
             mutex_unlock(&mutex_blocks);
             ShowNativeBT(LOG_NONE);
             testAllBlocks();
-            if(1 || BOX64ENV(log)>=LOG_DEBUG) {
+            if(BOX64ENV(log)>=LOG_DEBUG) {
                 printf_log(LOG_NONE, "Used 32bits address space map:\n");
                 uintptr_t addr = rb_get_leftmost(mapallmem);
                 while(addr<0x100000000LL) {
@@ -3105,7 +3105,7 @@ void my_reserveHighMem()
             if(cur<(1ULL<<48) && bend>(1ULL<<48))
                 bend = 1ULL<<48;
             void* ret = InternalMmap((void*)cur, bend - cur, 0, MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
-            printf_log(LOG_DEBUG, "Reserve %p-%p => %p (%s)\n", (void*)cur, bend, ret, (ret==MAP_FAILED)?strerror(errno):"ok");
+            // Skipped noisy reserve log;
             if(ret!=(void*)-1) {
                 rb_set(mapallmem, cur, bend, MEM_RESERVED);
             }
@@ -3332,24 +3332,24 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
     } else if (box64_wine || 1) {   // other mmap should be restricted to 47bits
         if (!(flags&MAP_FIXED) && !addr) {
             addr = find47bitBlock(length);
-            printf_log(LOG_DEBUG, "box_mmap: find47bitBlock(size=0x%lx) returned hint=%p, old_addr=%p\n", length, addr, old_addr);
+            // Skipped noisy box_mmap hint log;
         }
     }
     #endif
     void* ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
     if(ret == MAP_FAILED) {
         int saved_errno = errno;
-        printf_log(LOG_NONE, "box_mmap: InternalMmap(addr=%p, len=0x%lx, prot=0x%x, flags=0x%x, fd=%d) FAILED errno=%d(%s)\n",
+        printf_log(LOG_DEBUG, "box_mmap: InternalMmap(addr=%p, len=0x%lx, prot=0x%x, flags=0x%x, fd=%d) FAILED errno=%d(%s)\n",
             addr, length, prot, new_flags, fd, saved_errno, strerror(saved_errno));
         // Fallback 1: if the kernel rejected the hint, retry with NULL
         if (addr && !(flags&MAP_FIXED)) {
             void* ret2 = InternalMmap(NULL, length, prot, new_flags, fd, offset);
             if (ret2 != MAP_FAILED) {
-                printf_log(LOG_NONE, "box_mmap: NULL fallback succeeded at %p (was addr=%p)\n", ret2, addr);
+                printf_log(LOG_DEBUG, "box_mmap: NULL fallback succeeded at %p (was addr=%p)\n", ret2, addr);
                 ret = ret2;
                 errno = saved_errno;
             } else {
-                printf_log(LOG_NONE, "box_mmap: NULL fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
+                printf_log(LOG_DEBUG, "box_mmap: NULL fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
             }
         }
         // Fallback 2: OHOS sandbox may block RWX, try RW + mprotect
@@ -3361,14 +3361,14 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
             }
             if (ret3 != MAP_FAILED) {
                 if (mprotect(ret3, length, prot) == 0) {
-                    printf_log(LOG_NONE, "box_mmap: RW+mprotect fallback succeeded at %p\n", ret3);
+                    printf_log(LOG_DEBUG, "box_mmap: RW+mprotect fallback succeeded at %p\n", ret3);
                     ret = ret3;
                 } else {
-                    printf_log(LOG_NONE, "box_mmap: RW+mprotect fallback mprotect FAILED errno=%d(%s)\n", errno, strerror(errno));
+                    printf_log(LOG_DEBUG, "box_mmap: RW+mprotect fallback mprotect FAILED errno=%d(%s)\n", errno, strerror(errno));
                     InternalMunmap(ret3, length);
                 }
             } else {
-                printf_log(LOG_NONE, "box_mmap: RW fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
+                printf_log(LOG_DEBUG, "box_mmap: RW fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
             }
         }
     }

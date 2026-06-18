@@ -206,12 +206,10 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
                 if (n >= 0) {
                     ret = r2;
                 } else {
-                    fprintf(stderr, "[BOX64] InternalMmap: noexec-fs fallback FAILED, read=%zd\n", n);
                     syscall(__NR_munmap, r2, length);
                     errno = saved_errno2;
                 }
             } else {
-                fprintf(stderr, "[BOX64] InternalMmap: noexec-fs fallback FAILED, anon=%d(%s)\n", errno, strerror(errno));
             }
         } else {
             // 匿名 RWX: RW mmap + mprotect
@@ -223,11 +221,9 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
                 if (mprotect(r3, length, prot) == 0) {
                     ret = r3;
                 } else {
-                    fprintf(stderr, "[BOX64] InternalMmap: RWX mprotect FAILED errno=%d(%s)\n", errno, strerror(errno));
                     syscall(__NR_munmap, r3, length);
                 }
             } else {
-                fprintf(stderr, "[BOX64] InternalMmap: RWX fallback FAILED errno=%d(%s)\n", errno, strerror(errno));
             }
         }
     }
@@ -242,8 +238,7 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
     void* ret = libc_mmap64(addr, length, prot, flags, fd, offset);
 #endif
     if(ret == MAP_FAILED) {
-        fprintf(stderr, "[BOX64] InternalMmap(addr=%p, len=0x%lx, prot=0x%x, flags=0x%x, fd=%d, off=%ld) FAILED errno=%d(%s)\n",
-            addr, length, prot, flags, fd, (long)offset, errno, strerror(errno));
+        /* InternalMmap failed — errno is preserved for caller */
     }
     return ret;
 }
