@@ -4533,17 +4533,30 @@ EXPORT void my__exit(x64emu_t* emu, int code)
 EXPORT int my_prctl(x64emu_t* emu, int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5)
 {
     if(option==PR_SET_NAME) {
-        printf_log(LOG_DEBUG, "set process name to \"%s\"\n", (char*)arg2);
-        ApplyEnvFileEntry((char*)arg2);
-        size_t l = strlen((char*)arg2);
-        if(l>4 && !strcasecmp((char*)arg2+l-4, ".exe")) {
-            printf_log(LOG_DEBUG, "hacking orig command line to \"%s\"\n", (char*)arg2);
-            strcpy(my_context->orig_argv[0], (char*)arg2);
-        }
+        /*
+         * PR_SET_NAME(15)：guest 调用来设置进程名。
+         * 问题: 原代码处理后故意 fallthrough 到 native prctl，
+         * 但 x86_64 ABI 5 寄存器传参，arg4/r10, arg5/r8 携带
+         * guest 地址（如 PE 加载基址 0x14002d000）。OHOS 内核
+         * 尝试解引用这些地址 → SIGSEGV，直接杀掉 rundll32/wineboot
+         * 进程。
+         * 解决: 直接 return 0。进程名已在 Box64 初始化时通过 native
+         * prctl 设置，无需 guest 侧再次调用。
+         */
+        return 0;
     }
     if(option==PR_SET_SECCOMP) {
         printf_log(LOG_DEBUG, "Ignoring prctl(PR_SET_SECCOMP, ...)\n");
         return 0;
+    }
+    if(option==0x6a6974) {  /* OHOS JIT enable: prctl(0x6a6974, 0, 0).
+        Wine calls this from virtual_map_image / mprotect_exec to allow
+        PROT_EXEC on noexec filesystems.  The x86_64 syscall ABI passes
+        5 arguments through registers; the last two (arg4/r10, arg5/r8)
+        contain whatever the guest left in those registers, which may be
+        stale stack/heap pointers.  Zero them out to prevent the kernel
+        from misinterpreting them as valid pointers. */
+        return prctl(option, arg2, arg3, 0, 0);
     }
     if (option == PR_SET_SYSCALL_USER_DISPATCH) {
         long ret = my_syscall_user_dispatch_prctl(emu, arg2, arg3, arg4, (void*)arg5);
