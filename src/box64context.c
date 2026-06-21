@@ -216,7 +216,26 @@ box64context_t *NewBox64Context(int argc)
     context->exit_bridge = AddBridge(context->system, NULL, NULL, 0, NULL);
     // get handle to box64 itself
     #ifndef STATICBUILD
+    #ifdef LIBBOX64_SO
+    /*
+     * 问题: 上游用 dlopen(NULL) 获取自身 handle，但 Box64 作为 .so
+     * dlopen 进宿主后，dlopen(NULL) 返回宿主进程的全局符号表，
+     * 不含 Box64 的导出符号。
+     * 解决: 通过 dladdr 找 Box64 自身 .so 路径，显式 dlopen 获取 handle。
+     * fallback: dlopen("box64.so") → dlopen(NULL)。
+     */
+    {
+        Dl_info self = {0};
+        if(dladdr((void*)NewBox64Context, &self) && self.dli_fname)
+            context->box64lib = dlopen(self.dli_fname, RTLD_NOW|RTLD_GLOBAL);
+        if(!context->box64lib)
+            context->box64lib = dlopen("box64.so", RTLD_NOW|RTLD_GLOBAL);
+        if(!context->box64lib)
+            context->box64lib = dlopen(NULL, RTLD_NOW|RTLD_GLOBAL);
+    }
+    #else
     /* OHOS_PATCH_SKIP_BOX64LIB */ context->box64lib = NULL;
+    #endif
     #endif
     context->dlprivate = NewDLPrivate();
 

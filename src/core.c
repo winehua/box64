@@ -1011,6 +1011,15 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         AddPath("libwayland-client.so.0", &my_context->box64_emulated_libs, 0);
 
     my_context->box64path = ResolveFile(argv[0], &my_context->box64_path);
+#ifdef LIBBOX64_SO
+    // argv[0] is "box64" (a sentinel, not a filesystem path).
+    // ResolveFile can't find it, but we can get the real .so path via dladdr.
+    if (!my_context->box64path) {
+        Dl_info self = {0};
+        if (dladdr((void*)NewBox64Context, &self) && self.dli_fname)
+            my_context->box64path = box_strdup(self.dli_fname);
+    }
+#endif
     // prepare all other env. var
     my_context->envc = CountEnv(environ?environ:env);
     printf_log(LOG_INFO, "Counted %d Env var\n", my_context->envc);
@@ -1221,12 +1230,19 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         FreeCollection(&ld_preload);
         return -1;
     }
-    if(!FileExist(my_context->argv[0], IS_FILE|IS_EXECUTABLE)) {
+    if(exec && !FileExist(my_context->argv[0], IS_FILE|IS_EXECUTABLE)) {
+#ifdef LIBBOX64_SO
+        // 问题: OHOS noexec 文件系统上，wine ELF 文件没有执行权限位，
+        // FileExist(IS_EXECUTABLE) 会失败导致 Box64 拒绝加载。
+        // 解决: in-process 模式下跳过可执行检查，因为文件只需被 Box64
+        // 读取并映射到内存，不需要内核 execve。
+#else
         printf_log(LOG_NONE, "Error: %s is not an executable file.\n", my_context->argv[0]);
         free_contextargv();
         FreeBox64Context(&my_context);
         FreeCollection(&ld_preload);
         return -1;
+#endif
     }
     if(!(my_context->fullpath = box_realpath(my_context->argv[0], NULL)))
         my_context->fullpath = box_strdup(my_context->argv[0]);
@@ -1425,6 +1441,15 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
             ApplyEnvFileEntry(p);
         }
         // and now all change the argv (so libs libs mesa find the correct program names)
+#ifdef LIBBOX64_SO
+        // 问题: 上游代码将 argv 内存整体前移以隐藏 "box64" 标记，
+        // 但这会改写宿主进程的栈/堆上 argv 数据。dlopen 进宿主后
+        // 不能乱改宿主 argv（appspawn 持有原始指针，改写会导致
+        // 后续 ps/hilog 等读取崩溃）。
+        // 解决: 跳过宿主 argv 改写，直接使用 Box64 内部构造的 argv。
+        my_context->orig_argc = my_context->argc;
+        my_context->orig_argv = my_context->argv;
+#else
         char* endp = (char*)argv[argc-1];
         while(*endp)
             ++endp;    // find last argv[] address
@@ -1436,6 +1461,7 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
             argv[i] -= diff;    // adjust strings
         my_context->orig_argc = argc;
         my_context->orig_argv = (char**)argv;
+#endif
     }
     box64_nolibs = (NeededLibs(elf_header)==0);
     if(box64_nolibs) printf_log(LOG_INFO, "Warning, box64 is not really compatible with staticaly linked binaries. Expect crash!\n");
@@ -1464,6 +1490,7 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         SetRCX(emu, (uint64_t)my_context->envv);
         SetRBP(emu, 0); // Frame pointer so to "No more frame pointer"
     }
+
 
     thread_set_emu(emu);
 

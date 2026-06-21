@@ -1353,6 +1353,37 @@ if(DYNAREC)
 endif()
 target_link_libraries(${BOX64} interpreter)
 
+# OHOS_PATCH: Box64 as shared library (box64.so).
+# 问题: ARM64 Pad 无 execve，无法以独立可执行文件形式运行 Box64。
+# 解决: 编译为 .so (box64_hmos_core → box64.so)，由 wine_child NCP
+# 子进程通过 dlopen+dlsym(box64_hmos_main) 加载，在同一进程内模拟执行
+# x86_64 Wine ELF。区别于上游的 box64 可执行文件目标。
+# 启用方式: cmake -DLIBBOX64_SO=ON
+option(LIBBOX64_SO "Set to ON to build Box64 as a shared library" OFF)
+if(LIBBOX64_SO)
+    target_compile_definitions(mainobj PRIVATE LIBBOX64_SO=1)
+    add_library(box64_hmos_core SHARED "${BOX64_ROOT}/src/box64_lib.c")
+    target_compile_definitions(box64_hmos_core PRIVATE LIBBOX64_SO=1)
+    target_link_libraries(box64_hmos_core mainobj interpreter)
+    set_target_properties(box64_hmos_core PROPERTIES PREFIX "" OUTPUT_NAME box64)
+    add_dependencies(box64_hmos_core WRAPPERS)
+    if(BOX32)
+        add_dependencies(box64_hmos_core WRAPPERS32)
+    endif()
+    if(ANDROID)
+        target_link_libraries(box64_hmos_core c m dl libhilog_ndk.z.so)
+    endif()
+    if(DYNAREC)
+        target_link_libraries(box64_hmos_core dynarec)
+    endif()
+    # OHOS musl compat (sync with box64 executable)
+    target_sources(box64_hmos_core PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/musl_fts.c
+        ${CMAKE_SOURCE_DIR}/src/musl_obstack.c
+        ${CMAKE_SOURCE_DIR}/src/musl_error.c
+        ${CMAKE_SOURCE_DIR}/src/musl_compat.c)
+endif()
+
 if(${CMAKE_VERSION} VERSION_LESS "3.13")
     if(NOT NOLOADADDR)
         if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR WITH_MOLD)
