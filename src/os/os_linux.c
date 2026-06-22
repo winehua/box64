@@ -176,17 +176,24 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
     // OHOS JIT: 在 PROT_EXEC 操作前打开内核 JIT 开关
     int need_jit = (prot & PROT_EXEC) ? 1 : 0;
     if (need_jit) syscall(__NR_prctl, 0x6a6974, 0, 0);
-    void* ret = (void*)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
-    // OHOS: 绝不能关闭 JIT！进程后续还需要 mprotect(PROT_EXEC)
-    // (如 NewBrick, box_mmap fallback 等)
-    // if (need_jit) syscall(__NR_prctl, 0x6a6974, 0, 1);  // 已移除
+    void* ret = MAP_FAILED;
 #ifdef __OHOS__
-    // OHOS 沙箱 fallback:
-    // 1) noexec 文件系统: 文件映射 + PROT_EXEC → EPERM → anon+pread
-    // 2) 禁止匿名 RWX: 匿名 + PROT_EXEC → EPERM → RW+mprotect
-    if (ret == MAP_FAILED && errno == EPERM && (prot & PROT_EXEC)) {
-        if (fd != -1) {
-            // 文件映射: 匿名 mmap + pread
+    if (fd == -1 && (prot & PROT_EXEC)) {
+        // Anonymous RWX always EPERM on OHOS, skip the doomed 1st mmap
+        int rwprot = prot & ~PROT_EXEC;
+        ret = (void*)syscall(__NR_mmap, addr, length, rwprot, flags, -1, 0);
+        if (ret == MAP_FAILED && addr)
+            ret = (void*)syscall(__NR_mmap, NULL, length, rwprot, flags, -1, 0);
+        if (ret != MAP_FAILED && mprotect(ret, length, prot) != 0) {
+            syscall(__NR_munmap, ret, length);
+            ret = MAP_FAILED;
+        }
+    } else
+#endif
+    ret = (void*)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
+#ifdef __OHOS__
+    // File-backed EXEC on noexec fs: anon + pread fallback
+    if (ret == MAP_FAILED && errno == EPERM && (prot & PROT_EXEC) && fd != -1) {
             int saved_errno2 = errno;
             int anon_flags = MAP_PRIVATE | MAP_ANONYMOUS | (flags & MAP_FIXED);
             int anon_prot = prot | PROT_WRITE;
@@ -211,22 +218,7 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
                 }
             } else {
             }
-        } else {
-            // 匿名 RWX: RW mmap + mprotect
-            int rwprot = prot & ~PROT_EXEC;
-            void* r3 = (void*)syscall(__NR_mmap, addr, length, rwprot, flags, -1, 0);
-            if (r3 == MAP_FAILED && addr)
-                r3 = (void*)syscall(__NR_mmap, NULL, length, rwprot, flags, -1, 0);
-            if (r3 != MAP_FAILED) {
-                if (mprotect(r3, length, prot) == 0) {
-                    ret = r3;
-                } else {
-                    syscall(__NR_munmap, r3, length);
-                }
-            } else {
-            }
         }
-    }
 #endif
 #else
     static int grab = 1;
