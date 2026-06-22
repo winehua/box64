@@ -1230,19 +1230,17 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         FreeCollection(&ld_preload);
         return -1;
     }
+#ifndef LIBBOX64_SO
     if(exec && !FileExist(my_context->argv[0], IS_FILE|IS_EXECUTABLE)) {
-#ifdef LIBBOX64_SO
-        // 问题: OHOS noexec 文件系统上，wine ELF 文件没有执行权限位，
-        // FileExist(IS_EXECUTABLE) 会失败导致 Box64 拒绝加载。
-        // 解决: in-process 模式下跳过可执行检查，因为文件只需被 Box64
-        // 读取并映射到内存，不需要内核 execve。
 #else
+    // OHOS noexec: 只检查文件存在, 跳过 IS_EXECUTABLE
+    if(!FileExist(my_context->argv[0], IS_FILE)) {
+#endif
         printf_log(LOG_NONE, "Error: %s is not an executable file.\n", my_context->argv[0]);
         free_contextargv();
         FreeBox64Context(&my_context);
         FreeCollection(&ld_preload);
         return -1;
-#endif
     }
     if(!(my_context->fullpath = box_realpath(my_context->argv[0], NULL)))
         my_context->fullpath = box_strdup(my_context->argv[0]);
