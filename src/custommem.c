@@ -3329,27 +3329,20 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
     if((flags&MAP_32BIT) && !(flags&MAP_FIXED)) {
         // MAP_32BIT only exist on x86_64!
         addr = find31bitBlockNearHint(old_addr, length, 0);
-    } else if (box64_wine || 1) {   // other mmap should be restricted to 47bits
-        if (!(flags&MAP_FIXED) && !addr) {
+    } else if (box64_wine) {        // OHOS: rely on wine flag (always set for WineHua)
+        if (!(flags&MAP_FIXED) && !addr)
             addr = find47bitBlock(length);
-            // Skipped noisy box_mmap hint log;
-        }
     }
     #endif
     void* ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
     if(ret == MAP_FAILED) {
         int saved_errno = errno;
-        printf_log(LOG_DEBUG, "box_mmap: InternalMmap(addr=%p, len=0x%lx, prot=0x%x, flags=0x%x, fd=%d) FAILED errno=%d(%s)\n",
-            addr, length, prot, new_flags, fd, saved_errno, strerror(saved_errno));
         // Fallback 1: if the kernel rejected the hint, retry with NULL
         if (addr && !(flags&MAP_FIXED)) {
             void* ret2 = InternalMmap(NULL, length, prot, new_flags, fd, offset);
             if (ret2 != MAP_FAILED) {
-                printf_log(LOG_DEBUG, "box_mmap: NULL fallback succeeded at %p (was addr=%p)\n", ret2, addr);
                 ret = ret2;
                 errno = saved_errno;
-            } else {
-                printf_log(LOG_DEBUG, "box_mmap: NULL fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
             }
         }
         // Fallback 2: OHOS sandbox may block RWX, try RW + mprotect
@@ -3361,14 +3354,10 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
             }
             if (ret3 != MAP_FAILED) {
                 if (mprotect(ret3, length, prot) == 0) {
-                    printf_log(LOG_DEBUG, "box_mmap: RW+mprotect fallback succeeded at %p\n", ret3);
                     ret = ret3;
                 } else {
-                    printf_log(LOG_DEBUG, "box_mmap: RW+mprotect fallback mprotect FAILED errno=%d(%s)\n", errno, strerror(errno));
                     InternalMunmap(ret3, length);
                 }
-            } else {
-                printf_log(LOG_DEBUG, "box_mmap: RW fallback ALSO FAILED errno=%d(%s)\n", errno, strerror(errno));
             }
         }
     }
