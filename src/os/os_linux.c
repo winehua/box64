@@ -169,7 +169,6 @@ int IsAddrElfOrFileMapped(uintptr_t addr)
     return FindElfAddress(my_context, addr) || IsAddrFileMappedNoMemFD(addr);
 }
 
-#include <stdio.h>
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset)
 {
 #if 1 // def STATICBUILD
@@ -229,9 +228,6 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
     }
     void* ret = libc_mmap64(addr, length, prot, flags, fd, offset);
 #endif
-    if(ret == MAP_FAILED) {
-        /* InternalMmap failed — errno is preserved for caller */
-    }
     return ret;
 }
 

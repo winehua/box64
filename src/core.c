@@ -1489,7 +1489,6 @@ int initialize(int argc, const char **argv, char** env, x64emu_t** emulator, elf
         SetRBP(emu, 0); // Frame pointer so to "No more frame pointer"
     }
 
-
     thread_set_emu(emu);
 
     // export symbols
