@@ -96,6 +96,7 @@ typedef void* (*pEpII_t)(void*, int64_t, int64_t);
 typedef void* (*pFpui_t)(void*, uint32_t, int32_t);
 typedef void* (*pEpLL_t)(void*, uintptr_t, uintptr_t);
 typedef void* (*pEppi_t)(void*, void*, int32_t);
+typedef int32_t (*iEBp_LL_t)(struct_p_t*, uintptr_t, uintptr_t);
 typedef int64_t (*IEpBp_i_t)(void*, struct_p_t*, int32_t);
 typedef uint64_t (*UEpBp_i_t)(void*, struct_p_t*, int32_t);
 typedef double (*KEpBp_a_t)(void*, struct_p_t*, void*);

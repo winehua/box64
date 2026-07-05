@@ -3334,6 +3334,16 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
             addr = find47bitBlock(length);
     }
     #endif
+    /* OHOS_PATCH_BOX32_MMAP_HARD_SEARCH: MAP_32BIT hard fallback */
+    {
+        extern void* box_mmap32_hard_search_ohos(size_t, int, int, int, ssize_t);
+        if ((flags & MAP_32BIT) && !(flags & MAP_FIXED) && !addr) {
+            void* hs = box_mmap32_hard_search_ohos(length, prot, flags,
+                                                    fd, offset);
+            if (hs != MAP_FAILED) return hs;
+            /* fall through to original logic if hard search exhausted */
+        }
+    }
     void* ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
     if(ret == MAP_FAILED) {
         int saved_errno = errno;
@@ -3403,3 +3413,104 @@ EXPORT int box_munmap(void* addr, size_t length)
     int ret = InternalMunmap(addr, length);
     return ret;
 }
+
+/* ============================================================
+ * OHOS_PATCH_BOX32_MMAP_HARD_SEARCH (v2)
+ *
+ * OHOS ARM64 kernel does NOT implement MAP_FIXED_NOREPLACE (ENOSYS).
+ * Instead, parse /proc/self/maps to find free holes below 4GB,
+ * then claim with MAP_FIXED.  Confirmed viable by mmap probe.
+ *
+ * Scanning range: [0x10000000, 0xf0000000).  64KB alignment.
+ * ============================================================ */
+
+#include <stdio.h>
+#include <stdlib.h>
+
+static void* box_maps_search_low4gb(size_t len, int prot, int flags,
+                                    int fd, ssize_t offset)
+{
+    static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+    static const uintptr_t LO = 0x10000000UL;
+    static const uintptr_t HI = 0xf0000000UL;
+
+    if (len == 0 || len > (HI - LO)) return MAP_FAILED;
+
+    /* 64KB alignment */
+    size_t aligned = (len + 0xffffUL) & ~(size_t)0xffffUL;
+    if (aligned == 0) aligned = 0x10000;
+
+    pthread_mutex_lock(&mu);
+
+    /* Read occupied ranges below 4GB */
+    struct Range { uintptr_t s, e; };
+    struct Range* ranges = NULL;
+    size_t nr = 0, cap = 64;
+    ranges = (struct Range*)calloc(cap, sizeof(struct Range));
+    if (!ranges) { pthread_mutex_unlock(&mu); return MAP_FAILED; }
+
+    FILE* f = fopen("/proc/self/maps", "r");
+    if (f) {
+        char line[512];
+        while (fgets(line, sizeof(line), f)) {
+            uintptr_t s, e;
+            char fl[8];
+            if (sscanf(line, "%lx-%lx %7s", &s, &e, fl) == 3) {
+                if (s >= HI) break;  /* sorted by address, done */
+                if (e <= LO) continue;
+                if (nr >= cap) {
+                    cap *= 2;
+                    ranges = (struct Range*)realloc(ranges, cap * sizeof(struct Range));
+                    if (!ranges) { fclose(f); pthread_mutex_unlock(&mu); return MAP_FAILED; }
+                }
+                ranges[nr].s = s;
+                ranges[nr].e = e;
+                nr++;
+            }
+        }
+        fclose(f);
+    }
+
+    /* Find first hole >= aligned */
+    void* result = MAP_FAILED;
+    uintptr_t cur = LO;
+    for (size_t i = 0; i < nr; i++) {
+        if (cur + aligned <= ranges[i].s) {
+            /* Hole found between cur and this range */
+            int try_flags = (flags & ~MAP_32BIT) | MAP_FIXED;
+            void* m = InternalMmap((void*)cur, aligned, prot, try_flags, fd, offset);
+            if (m == (void*)cur) {
+                result = m;
+                goto done;
+            }
+            if (m != MAP_FAILED) InternalMunmap(m, aligned);
+        }
+        /* Advance past this range */
+        if (ranges[i].e > cur) cur = ranges[i].e;
+        cur = (cur + 0xffffUL) & ~(size_t)0xffffUL;  /* re-align */
+        if (cur + aligned > HI) break;
+    }
+
+    /* Check tail: hole from last range end to HI */
+    if (result == MAP_FAILED && cur + aligned <= HI) {
+        int try_flags = (flags & ~MAP_32BIT) | MAP_FIXED;
+        void* m = InternalMmap((void*)cur, aligned, prot, try_flags, fd, offset);
+        if (m == (void*)cur) {
+            result = m;
+        } else if (m != MAP_FAILED) {
+            InternalMunmap(m, aligned);
+        }
+    }
+
+done:
+    free(ranges);
+    pthread_mutex_unlock(&mu);
+    return result;
+}
+
+void* box_mmap32_hard_search_ohos(size_t length, int prot, int flags,
+                                  int fd, ssize_t offset)
+{
+    return box_maps_search_low4gb(length, prot, flags, fd, offset);
+}
+/* OHOS_PATCH_BOX32_MMAP_HARD_SEARCH END */

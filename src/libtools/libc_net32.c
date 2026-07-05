@@ -570,8 +570,7 @@ void* convert_res_state_to_32(void* d, void* s)
     dst->ipv6_unavail = src->ipv6_unavail;
     dst->unused = src->unused;
     memmove(dst->sort_list, src->sort_list, sizeof(dst->sort_list));
-    dst->__glibc_unused_qhook = to_ptrv(src->__glibc_unused_qhook);
-    dst->__glibc_unused_rhook = to_ptrv(src->__glibc_unused_rhook);
+    /* OHOS musl: struct __res_state has no __glibc_unused_*hook fields */
     dst->res_h_errno = src->res_h_errno;
     dst->_vcsock = src->_vcsock;
     dst->_flags = src->_flags;
@@ -590,8 +589,7 @@ void* convert_res_state_to_64(void* d, void* s)
     dst->_flags = src->_flags;
     dst->_vcsock = src->_vcsock;
     dst->res_h_errno = src->res_h_errno;
-    dst->__glibc_unused_rhook = from_ptrv(src->__glibc_unused_rhook);
-    dst->__glibc_unused_qhook = from_ptrv(src->__glibc_unused_qhook);
+    /* OHOS musl: struct __res_state has no __glibc_unused_*hook fields */
     memmove(dst->sort_list, src->sort_list, sizeof(dst->sort_list));
     dst->unused = src->unused;
     dst->ipv6_unavail = src->ipv6_unavail;

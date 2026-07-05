@@ -1,3 +1,18 @@
+/* OHOS musl: glibc-private types + siginfo_t field rename */
+#ifndef BOX64_OHOS_SIGNAL32_GUARD
+#define BOX64_OHOS_SIGNAL32_GUARD 1
+#include <sys/types.h>
+#include <signal.h>
+typedef pid_t __pid_t;
+typedef uid_t __uid_t;
+typedef gid_t __gid_t;
+#ifndef __SI_SIGFAULT_ADDL
+#define __SI_SIGFAULT_ADDL  /* glibc-only extension fields, drop on musl */
+#endif
+/* musl: siginfo_t::_sifields -> __si_fields */
+#define _sifields __si_fields
+#endif
+
 #define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>

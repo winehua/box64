@@ -217,6 +217,7 @@ uintptr_t native_pass(dynarec_native_t* dyn, uintptr_t addr, int alternate, int 
         #endif
         MESSAGE(LOG_DUMP, "New Instruction %s:%p, native:%p\n", is32bits?"x86":"x64",(void*)addr, (void*)dyn->block);
         NEW_INST;
+        /* OHOS-DIAG: 32-bit block tracking disabled for production */
         #ifdef ARCH_NOP
         if(dyn->insts[ninst].x64.alive && dyn->insts[ninst].x64.self_loop)
             CALLRET_LOOP();

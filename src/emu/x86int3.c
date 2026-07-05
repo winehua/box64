@@ -49,6 +49,9 @@ void x86Int3(x64emu_t* emu, uintptr_t* addr)
 {
     onebridge_t* bridge = (onebridge_t*)(*addr-1);
     if (IsBridgeSignature(Peek8(*addr, 0), Peek8(*addr, 1))) { // Signature for "Out of x86 door"
+        fprintf(stderr, "[OHOS-DIAG] x86Int3 bridge exit: a=0x%lx RIP=0x%lx\n",
+                F64(addr), (uint64_t)R_RIP);
+        fflush(stderr);
         *addr += 2;
         uintptr_t a = F64(addr);
         if(a==0) {

@@ -2651,6 +2651,7 @@ wrappedlibc:
 - pEpLL:
 - pEppi:
   - __realpath_chk
+- iEBp_LL:
 - IEpBp_i:
   - __isoc23_strtoll
 - UEpBp_i:

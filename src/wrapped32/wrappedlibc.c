@@ -1,3 +1,42 @@
+/* OHOS_PATCH_WRAPPEDLIBC32 */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <ctype.h>
+#include <pthread.h>
+#include <sched.h>
+#include <sys/select.h>
+#ifndef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP PTHREAD_MUTEX_INITIALIZER
+#endif
+#ifndef PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP
+#define PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP PTHREAD_MUTEX_INITIALIZER
+#endif
+typedef int (*__compar_d_fn_t)(const void *, const void *, void *);
+extern const unsigned short **__ctype_b_loc(void);
+extern const int **__ctype_tolower_loc(void);
+extern const int **__ctype_toupper_loc(void);
+#ifndef GLOB_ALTDIRFUNC
+#define GLOB_ALTDIRFUNC (1 << 9)
+#endif
+#ifndef __NFDBITS
+#define __NFDBITS (8 * (int)sizeof(long))
+#endif
+/* OHOS_PATCH_WRAPPEDLIBC32 END */
+
+/* OHOS_PATCH_BOX32_ALLOC_LOW4GB */
+#ifndef BOX64_OHOS_BOX32_ALLOC_GUARD
+#define BOX64_OHOS_BOX32_ALLOC_GUARD 1
+#include <string.h>
+extern void*  box32_malloc(size_t);
+extern void*  box32_calloc(size_t, size_t);
+extern void*  box32_realloc(void*, size_t);
+extern void   box32_free(void*);
+extern void*  box32_memalign(size_t, size_t);
+extern char*  box32_strdup(const char*);
+extern size_t box32_malloc_usable_size(void*);
+#endif
+
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 #include <stdlib.h>
 #include <stdio.h>
@@ -171,7 +210,35 @@ typedef void* (*pFu_t)(uint32_t);
 
 #include "generated/wrappedlibctypes32.h"
 
+/* OHOS_UNDEF_BEFORE_CB32 */
+#undef stat64
+#undef fstat64
+#undef lstat64
+#undef fstatat64
+#undef fopen64
+#undef ftw64
+#undef nftw64
+#undef scandir64
+#undef open64
+#undef mmap64
+#undef statvfs64
+#undef fstatvfs64
+/* OHOS_UNDEF_BEFORE_CB32 END */
 #include "wrappercallback32.h"
+/* OHOS_REDEF_AFTER_CB32 */
+#define stat64     stat
+#define fstat64    fstat
+#define lstat64    lstat
+#define fstatat64  fstatat
+#define fopen64    fopen
+#define ftw64      ftw
+#define nftw64     nftw
+#define scandir64  scandir
+#define open64     open
+#define mmap64     mmap
+#define statvfs64  statvfs
+#define fstatvfs64 fstatvfs
+/* OHOS_REDEF_AFTER_CB32 END */
 
 struct i386_stat {
 	uint64_t  st_dev;
@@ -1770,7 +1837,7 @@ static void convert_glob_to_32(void* d, void* s, int is64)
     dst->gl_pathc = to_ulong(src->gl_pathc);
     dst->gl_pathv = to_ptrv(src->gl_pathv);
     dst->gl_offs = to_ulong(src->gl_offs);
-    dst->gl_flags = src->gl_flags;
+    /* OHOS musl glob_t: no gl_flags */ (void)0;
     // TODO: functions pointers
 }
 static void convert_glob_to_64(void* d, void* s, int is64)
@@ -1781,7 +1848,7 @@ static void convert_glob_to_64(void* d, void* s, int is64)
     dst->gl_pathc = from_ulong(src->gl_pathc);
     dst->gl_pathv = from_ptrv(src->gl_pathv);
     dst->gl_offs = from_ulong(src->gl_offs);
-    dst->gl_flags = src->gl_flags;
+    /* OHOS musl glob_t: no gl_flags */ (void)0;
     for(ulong_t i=dst->gl_pathc; i--;)
         dst->gl_pathv[i] = from_ptrv(((ptr_t*)dst->gl_pathv)[i]);
     // TODO: functions pointers
@@ -2179,8 +2246,8 @@ void convert_file_action_to_32(void* d, void* s)
 {
     posix_spawn_file_actions_32_t* dst = d;
     posix_spawn_file_actions_t* src = s;
-    dst->__allocated = src->__allocated;
-    dst->__used = src->__used;
+    /* OHOS musl posix_spawn: no __allocated */ (void)0;
+    /* OHOS musl posix_spawn: no __used */ (void)0;
     dst->__actions = to_ptrv(src->__actions);
 }
 void convert_file_action_to_64(void* d, void* s)
@@ -2188,8 +2255,8 @@ void convert_file_action_to_64(void* d, void* s)
     posix_spawn_file_actions_t* dst = d;
     posix_spawn_file_actions_32_t* src = s;
     dst->__actions = from_ptrv(src->__actions);
-    dst->__used = src->__used;
-    dst->__allocated = src->__allocated;
+    /* OHOS musl posix_spawn: no __used */ (void)0;
+    /* OHOS musl posix_spawn: no __allocated */ (void)0;
 }
 
 EXPORT int my32_posix_spawn_file_actions_init(x64emu_t* emu, posix_spawn_file_actions_32_t* action)
@@ -3214,7 +3281,8 @@ EXPORT long my32_prlimit64(void* pid, uint32_t res, void* new_rlim, void* old_rl
 #endif
 EXPORT void* my32_reallocarray(void* ptr, size_t nmemb, size_t size)
 {
-    return realloc(ptr, nmemb*size);
+    /* OHOS_PATCH_BOX32_ALLOC_LOW4GB */
+    return box32_realloc(ptr, nmemb * size);
 }
 #if 0
 #ifndef __OPEN_NEEDS_MODE
@@ -3359,10 +3427,12 @@ EXPORT long my32_ftell(x64emu_t* emu, FILE* f)
     return ret;
 }
 
-// wrapped malloc using calloc, it seems x86 malloc set alloc'd block to zero somehow
+// wrapped malloc using box32 low-4GB heap (OHOS_PATCH_BOX32_ALLOC_LOW4GB)
 EXPORT void* my32_malloc(unsigned long size)
 {
-    return calloc(1, size);
+    void* p = box32_malloc((size_t)size);
+    if(p) memset(p, 0, (size_t)size);
+    return p;
 }
 
 struct sysinfo_32 {
@@ -3726,3 +3796,74 @@ void libc32_net_init();
     my32_stderr = to_ptrv(my__IO_2_1_stderr_);
 
 #include "wrappedlib_init32.h"
+
+/* ============================================================
+ * OHOS_PATCH_BOX32_ALLOC_LOW4GB extras
+ * 给 free/calloc/realloc/memalign/posix_memalign/strdup/strndup/
+ * valloc/malloc_usable_size 提供 my32_ 代理, 全部走 box32 低 4GB heap.
+ * ============================================================ */
+
+EXPORT void my32_free(void* p)
+{
+    box32_free(p);
+}
+
+EXPORT void* my32_calloc(size_t nmemb, size_t size)
+{
+    return box32_calloc(nmemb, size);
+}
+
+EXPORT void* my32_realloc(void* p, size_t size)
+{
+    return box32_realloc(p, size);
+}
+
+EXPORT void* my32_memalign(size_t align, size_t size)
+{
+    return box32_memalign(align, size);
+}
+
+EXPORT int my32_posix_memalign(void** memptr, size_t align, size_t size)
+{
+    if(!memptr) return 22 /* EINVAL */;
+    void* p = box32_memalign(align, size);
+    if(!p) { *memptr = NULL; return 12 /* ENOMEM */; }
+    *memptr = p;
+    return 0;
+}
+
+EXPORT void* my32_valloc(size_t size)
+{
+    return box32_memalign(4096, size);
+}
+
+EXPORT char* my32_strdup(const char* s)
+{
+    return box32_strdup(s);
+}
+
+EXPORT char* my32___strdup(const char* s)
+{
+    return box32_strdup(s);
+}
+
+EXPORT char* my32_strndup(const char* s, size_t n)
+{
+    if(!s) return NULL;
+    size_t len = 0;
+    while(len < n && s[len]) ++len;
+    char* p = (char*)box32_malloc(len + 1);
+    if(p) { memcpy(p, s, len); p[len] = 0; }
+    return p;
+}
+
+EXPORT char* my32___strndup(const char* s, size_t n)
+{
+    return my32_strndup(s, n);
+}
+
+EXPORT size_t my32_malloc_usable_size(void* p)
+{
+    return box32_malloc_usable_size(p);
+}
+/* OHOS_PATCH_BOX32_ALLOC_LOW4GB END */

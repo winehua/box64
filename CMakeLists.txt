@@ -1381,7 +1381,8 @@ if(LIBBOX64_SO)
         ${CMAKE_SOURCE_DIR}/src/musl_fts.c
         ${CMAKE_SOURCE_DIR}/src/musl_obstack.c
         ${CMAKE_SOURCE_DIR}/src/musl_error.c
-        ${CMAKE_SOURCE_DIR}/src/musl_compat.c)
+        ${CMAKE_SOURCE_DIR}/src/musl_compat.c
+        ${CMAKE_SOURCE_DIR}/src/musl_box32_stubs.c)
 endif()
 
 if(${CMAKE_VERSION} VERSION_LESS "3.13")

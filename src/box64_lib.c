@@ -10,6 +10,7 @@
  * @param env   宿主环境变量 (environ)
  * @return      0=成功, -1=初始化失败
  */
+#include <stdio.h>
 #include "core.h"
 
 __attribute__((visibility("default")))
@@ -18,8 +19,14 @@ int box64_hmos_main(int argc, const char **argv, char **env)
     x64emu_t* emu = NULL;
     elfheader_t* elf_header = NULL;
 
-    if (initialize(argc, argv, env, &emu, &elf_header, 0))
+    if (initialize(argc, argv, env, &emu, &elf_header, 0)) {
+        fprintf(stderr, "[OHOS-DIAG] box64 initialize FAILED, returning -1\n");
+            fflush(stderr);
         return -1;
+    }
 
-    return emulate(emu, elf_header);
+    int rc = emulate(emu, elf_header);
+    fprintf(stderr, "[OHOS-DIAG] box64 emulate returned rc=%d (0x%x)\n", rc, rc);
+            fflush(stderr);
+    return rc;
 }

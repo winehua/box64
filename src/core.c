@@ -678,6 +678,8 @@ void endBox64()
     SerializeAllMapping();   // just to be safe
     // then call all the fini
     dynarec_log(LOG_DEBUG, "endBox64() called\n");
+    fprintf(stderr, "[OHOS-DIAG] endBox64 (normal exit)\n");
+    fflush(stderr);
     box64_quit = 1;
     x64emu_t* emu = thread_get_emu();
     void startTimedExit();
@@ -1565,6 +1567,9 @@ int emulate(x64emu_t* emu, elfheader_t* elf_header)
     loadProtectionFromMap();
 
     // emulate!
+    fprintf(stderr, "[OHOS-DIAG] emulate START, box64_is32bits=%d ep=0x%lx\n",
+            box64_is32bits, my_context->ep);
+    fflush(stderr);
     printf_log(LOG_DEBUG, "Start x64emu on Main\n");
     // Stack is ready, with stacked: NULL env NULL argv argc
     ResetFlags(emu);
@@ -1583,6 +1588,8 @@ int emulate(x64emu_t* emu, elfheader_t* elf_header)
     DynaRun(emu);
     // Get EAX
     int ret = GetEAX(emu);
+    fprintf(stderr, "[OHOS-DIAG] emulate main loop exited EAX=%d (0x%x)\n", ret, ret);
+    fflush(stderr);
     printf_log(LOG_DEBUG, "Emulation finished, EAX=%d\n", ret);
     endBox64();
 #ifdef HAVE_TRACE

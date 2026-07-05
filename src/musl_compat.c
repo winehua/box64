@@ -298,3 +298,227 @@ __attribute__((weak)) int finitef(float x) { return __builtin_isfinite(x); }
 __attribute__((weak)) double      exp10 (double x)      { return pow (10.0,  x); }
 __attribute__((weak)) float       exp10f(float x)       { return powf(10.0f, x); }
 __attribute__((weak)) long double exp10l(long double x) { return powl(10.0L, x); }
+
+/* ============================================================
+ * OHOS_PATCH_BOX32_LOW4GB_V2
+ * BOX32 低 4GB allocator 全套 (patch 28)
+ *
+ * 提供 debug.h 引用的全部 7 个 box32_* 入口:
+ *   box32_malloc / calloc / realloc / free
+ *   box32_memalign / box32_strdup / box32_malloc_usable_size
+ *
+ * 上层 box64 通过 actual_* 宏在 BOX32 模式下自动路由到这里.
+ * ============================================================ */
+#include <sys/mman.h>
+#include <stdint.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void* box32_malloc(size_t size);
+void* box32_calloc(size_t n, size_t s);
+void* box32_realloc(void* old, size_t size);
+void  box32_free(void* p);
+void* box32_memalign(size_t align, size_t size);
+char* box32_strdup(const char* s);
+size_t box32_malloc_usable_size(void* p);
+
+#define BOX32_HEAP_BASE   ((uintptr_t)0x10000000UL)  /* 256MB 起 */
+#define BOX32_HEAP_SIZE   ((size_t)0x10000000UL)     /* 256MB 大小 */
+#define BOX32_ALIGN       16
+#define BOX32_CANARY      0xB032B032u
+
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
+typedef struct box32_hdr_s {
+    uint32_t size;
+    uint32_t canary;
+} box32_hdr_t;
+
+static unsigned char* g_box32_base = NULL;
+static unsigned char* g_box32_pos  = NULL;
+static unsigned char* g_box32_end  = NULL;
+static unsigned char* g_box32_last = NULL;
+static pthread_mutex_t g_box32_mu  = PTHREAD_MUTEX_INITIALIZER;
+
+static void box32_heap_init_locked(void) {
+    if (g_box32_base) return;
+
+    /* OHOS NCP: ARM64 kernel honours low address hints precisely.
+     * Try MAP_FIXED first (probe-confirmed to work for NCP children),
+     * then fall back to hint mmap with step search. */
+    void* p = MAP_FAILED;
+
+    /* Try 1: MAP_FIXED at preferred address (works in clean NCP child) */
+    p = mmap((void*)BOX32_HEAP_BASE, BOX32_HEAP_SIZE, PROT_READ|PROT_WRITE,
+             MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
+    if (p == (void*)BOX32_HEAP_BASE) goto ok;
+
+    /* Try 2: hint mmap, step search 0x10000000..0x80000000 */
+    if (p != MAP_FAILED) { munmap(p, BOX32_HEAP_SIZE); p = MAP_FAILED; }
+    for (uintptr_t hint = 0x10000000UL; hint < 0x80000000UL;
+         hint += 0x10000000UL) {
+        p = mmap((void*)hint, BOX32_HEAP_SIZE, PROT_READ|PROT_WRITE,
+                 MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+        if (p != MAP_FAILED &&
+            (uintptr_t)p + BOX32_HEAP_SIZE <= 0x100000000UL) goto ok;
+        if (p != MAP_FAILED) { munmap(p, BOX32_HEAP_SIZE); p = MAP_FAILED; }
+    }
+
+    fprintf(stderr,
+        "OHOS box32: cannot reserve low-4GB heap (%zuMB)\n",
+        (size_t)(BOX32_HEAP_SIZE >> 20));
+    abort();
+ok:
+    g_box32_base = (unsigned char*)p;
+    g_box32_pos  = g_box32_base;
+    g_box32_end  = g_box32_base + BOX32_HEAP_SIZE;
+    g_box32_last = NULL;
+    fprintf(stderr,
+        "OHOS box32: low-4GB heap @%p..%p (%zuMB)\n",
+        g_box32_base, g_box32_end,
+        (size_t)(BOX32_HEAP_SIZE >> 20));
+}
+
+static void* box32_alloc_aligned_locked(size_t user_size, size_t align) {
+    if (align < BOX32_ALIGN) align = BOX32_ALIGN;
+    uintptr_t hdr_pos = (uintptr_t)g_box32_pos;
+    uintptr_t user_pos = (hdr_pos + sizeof(box32_hdr_t) + (align - 1))
+                         & ~(uintptr_t)(align - 1);
+    uintptr_t end_pos = user_pos + user_size;
+    end_pos = (end_pos + (BOX32_ALIGN - 1)) & ~(uintptr_t)(BOX32_ALIGN - 1);
+
+    if (end_pos > (uintptr_t)g_box32_end) return NULL;
+
+    box32_hdr_t* h = (box32_hdr_t*)(user_pos - sizeof(box32_hdr_t));
+    h->size   = (uint32_t)user_size;
+    h->canary = BOX32_CANARY;
+
+    g_box32_pos  = (unsigned char*)end_pos;
+    g_box32_last = (unsigned char*)user_pos;
+    return (void*)user_pos;
+}
+
+static int box32_free_locked(void* user) {
+    if (!user) return 1;
+    if ((unsigned char*)user < g_box32_base ||
+        (unsigned char*)user >= g_box32_end) return 0;
+
+    box32_hdr_t* h = (box32_hdr_t*)((unsigned char*)user - sizeof(box32_hdr_t));
+    if (h->canary != BOX32_CANARY) {
+        fprintf(stderr, "OHOS box32: bad free %p (canary=0x%x)\n",
+                user, h->canary);
+        return 1;
+    }
+
+    if ((unsigned char*)user == g_box32_last) {
+        g_box32_pos  = (unsigned char*)h;
+        g_box32_last = NULL;
+    }
+    h->canary = 0xDEADDEAD;
+    return 1;
+}
+
+void* box32_malloc(size_t size) {
+    if (!size) size = 1;
+    pthread_mutex_lock(&g_box32_mu);
+    if (!g_box32_base) box32_heap_init_locked();
+    void* p = box32_alloc_aligned_locked(size, BOX32_ALIGN);
+    pthread_mutex_unlock(&g_box32_mu);
+    if (!p) {
+        fprintf(stderr,
+            "OHOS box32: low-4GB heap exhausted (want=%zu, used=%zuMB/%zuMB)\n",
+            size,
+            (size_t)((g_box32_pos - g_box32_base) >> 20),
+            (size_t)(BOX32_HEAP_SIZE >> 20));
+    }
+    return p;
+}
+
+void* box32_calloc(size_t n, size_t s) {
+    size_t total = n * s;
+    void* p = box32_malloc(total);
+    if (p) memset(p, 0, total);
+    return p;
+}
+
+void* box32_memalign(size_t align, size_t size) {
+    if (align < BOX32_ALIGN) align = BOX32_ALIGN;
+    if (align & (align - 1)) {
+        size_t a = BOX32_ALIGN;
+        while (a < align) a <<= 1;
+        align = a;
+    }
+    if (!size) size = 1;
+    pthread_mutex_lock(&g_box32_mu);
+    if (!g_box32_base) box32_heap_init_locked();
+    void* p = box32_alloc_aligned_locked(size, align);
+    pthread_mutex_unlock(&g_box32_mu);
+    return p;
+}
+
+void* box32_realloc(void* old, size_t size) {
+    if (!old)  return box32_malloc(size);
+    if (!size) { box32_free(old); return NULL; }
+
+    pthread_mutex_lock(&g_box32_mu);
+    box32_hdr_t* h = (box32_hdr_t*)((unsigned char*)old - sizeof(box32_hdr_t));
+    if (h->canary != BOX32_CANARY) {
+        pthread_mutex_unlock(&g_box32_mu);
+        fprintf(stderr, "OHOS box32: bad realloc %p\n", old);
+        return NULL;
+    }
+    size_t old_size = h->size;
+
+    if (size <= old_size) {
+        h->size = (uint32_t)size;
+        pthread_mutex_unlock(&g_box32_mu);
+        return old;
+    }
+
+    if ((unsigned char*)old == g_box32_last) {
+        uintptr_t new_end = (uintptr_t)old + size;
+        new_end = (new_end + (BOX32_ALIGN - 1)) & ~(uintptr_t)(BOX32_ALIGN - 1);
+        if (new_end <= (uintptr_t)g_box32_end) {
+            g_box32_pos = (unsigned char*)new_end;
+            h->size = (uint32_t)size;
+            pthread_mutex_unlock(&g_box32_mu);
+            return old;
+        }
+    }
+
+    void* np = box32_alloc_aligned_locked(size, BOX32_ALIGN);
+    pthread_mutex_unlock(&g_box32_mu);
+    if (!np) return NULL;
+    memcpy(np, old, old_size);
+    box32_free(old);
+    return np;
+}
+
+void box32_free(void* p) {
+    if (!p) return;
+    pthread_mutex_lock(&g_box32_mu);
+    box32_free_locked(p);
+    pthread_mutex_unlock(&g_box32_mu);
+}
+
+char* box32_strdup(const char* s) {
+    if (!s) return NULL;
+    size_t len = strlen(s);
+    char* p = (char*)box32_malloc(len + 1);
+    if (p) memcpy(p, s, len + 1);
+    return p;
+}
+
+size_t box32_malloc_usable_size(void* p) {
+    if (!p) return 0;
+    if ((unsigned char*)p < g_box32_base ||
+        (unsigned char*)p >= g_box32_end) return 0;
+    box32_hdr_t* h = (box32_hdr_t*)((unsigned char*)p - sizeof(box32_hdr_t));
+    if (h->canary != BOX32_CANARY) return 0;
+    return h->size;
+}
+/* OHOS_PATCH_BOX32_LOW4GB_V2 END */

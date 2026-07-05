@@ -105,8 +105,15 @@ void EmitSignal(x64emu_t* emu, int sig, void* addr, int code)
         if (sig == X64_SIGILL) {
             uint8_t* mem = (uint8_t*)R_RIP;
             printf_log(LOG_NONE, "SIGILL: Opcode at ip is %02hhx %02hhx %02hhx %02hhx %02hhx %02hhx\n", mem[0], mem[1], mem[2], mem[3], mem[4], mem[5]);
+            fprintf(stderr, "[OHOS-DIAG] SIGILL at RIP=%p opcode=%02x%02x%02x%02x%02x%02x\n",
+                    (void*)R_RIP, mem[0], mem[1], mem[2], mem[3], mem[4], mem[5]);
+        }
+        if (sig == X64_SIGSEGV) {
+            fprintf(stderr, "[OHOS-DIAG] SIGSEGV at RIP=%p addr=%p code=0x%x err=0x%x\n",
+                    (void*)R_RIP, info.si_addr, info.si_code, info.si_errno);
         }
     }
+    fflush(stderr);  /* ensure crash diag is flushed */
     my_sigactionhandler_oldcode(emu, sig, 0, &info, NULL, NULL, NULL, R_RIP);
 }
 

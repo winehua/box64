@@ -49,9 +49,9 @@ static vFpi_t real_pthread_cleanup_pop_restore = NULL;
 // it will be pthread_kill@GLIBC_2.0+, need to be found, while it's GLIBC_2.0 on i386
 static iFLi_t real_phtread_kill_old = NULL;
 static iFv_t real_pthread_yield = NULL;
-// those function can be used simply
-void _pthread_cleanup_push(void* buffer, void* routine, void* arg); // declare hidden functions
-void _pthread_cleanup_pop(void* buffer, int exec);
+// OHOS musl: musl <pthread.h> already declares _pthread_cleanup_push/pop,
+// box64's own forward declarations conflict. Let musl's versions be used.
+// (grep for _pthread_cleanup_push in the source to verify)
 
 typedef struct threadstack_s {
     void*  stack;
@@ -1012,7 +1012,7 @@ EXPORT int my32_pthread_mutex_init(pthread_mutex_t *m, pthread_mutexattr_t *att)
     fake->__kind = KIND_SIGN;
     fake->real_mutex = to_ptrv(createNewMutex());
     int ret = pthread_mutex_init(from_ptrv(fake->real_mutex), att);
-    fake->i386__kind = ((struct __pthread_mutex_s*)from_ptrv(fake->real_mutex))->__kind;
+    fake->i386__kind = 0 /* OHOS musl: no struct __pthread_mutex_s.__kind */;
     printf_log(LOG_DEBUG, "(init t%d %p) ", fake->i386__kind, from_ptrv(fake->real_mutex));
     return ret;
 }

@@ -1,3 +1,4 @@
+/* OHOS_PATCH_BOX32_ALLOC_LOW4GB */
 #if !(defined(GO) && defined(GOM) && defined(GO2) && defined(DATA) && defined(GOS))
 #error Meh...
 #endif
@@ -118,7 +119,7 @@ GOM(bsearch, pEEppLLp) //%%
 GOW(btowc, uEi)
 GOW(bzero, vEpL)
 GO(__bzero, vEpL)
-GOW(calloc, pELL)
+GOWM(calloc, pELL)  //%%,noE
 // callrpc
 //GOW(canonicalize_file_name, pEp)
 GO(capget, iFpp)
@@ -398,7 +399,7 @@ GO(__fread_chk, uEpLLLS)
 //GO(__freading, iEp)
 GO(fread_unlocked, LEpLLS)
 //GO(__fread_unlocked_chk, uEpuuup)
-GO(free, vEp)
+GOM(free, vEp)  //%%,noE
 GOM(freeaddrinfo, vEEp)
 //DATAV(__free_hook, 4)
 GO(freeifaddrs, vEp)
@@ -1100,7 +1101,7 @@ GOM(malloc, pEL)            //%%,noE
 // malloc_set_state // Weak
 // malloc_stats // Weak
 GOW(malloc_trim, iEL)
-GOW(malloc_usable_size, LEp)
+GOWM(malloc_usable_size, LEp)  //%%,noE
 GOW(mallopt, iEii)  // Weak
 // mallwatch    // type B
 //GO(mblen, iEpL)
@@ -1122,7 +1123,7 @@ GO(mbtowc, iEppL)
 // _mcleanup
 //GOWM(mcount, vEpp)   //%%,noE
 // _mcount
-GOW(memalign, pELL)
+GOWM(memalign, pELL)  //%%,noE
 //DATAV(__memalign_hook, 4)
 GOW(memccpy, pEppiL)
 GO(memchr, pEpiL)
@@ -1285,7 +1286,7 @@ GO(posix_fadvise64, iEiIIi)
 GO(posix_fallocate, iEill)
 GO(posix_fallocate64, iEiII)
 GO(posix_madvise, iEpLi)
-GOW(posix_memalign, iEBp_LL)
+GOWM(posix_memalign, iEBp_LL)  //%%,noE
 // posix_openpt // Weak
 GOM(posix_spawn, iEEpppppp) //%%
 GO(posix_spawnattr_destroy, iFp)
@@ -1397,7 +1398,7 @@ GOM(readlinkat, iEEippL)
 // __readlinkat_chk
 // __readlink_chk
 GOM(readv, lEEipi)
-GO(realloc, pEpL)
+GOM(realloc, pEpL)  //%%,noE
 //DATAV(__realloc_hook, 4)
 GOM(realpath, pEEpp) //%%
 GO2(__realpath_chk, pEEppi, my32_realpath)
@@ -1691,8 +1692,8 @@ GO(strcspn, LEpp)
 // __strcspn_c1
 // __strcspn_c2
 // __strcspn_c3
-GOW(strdup, pEp)
-GO(__strdup, pEp)
+GOWM(strdup, pEp)  //%%,noE
+GOM(__strdup, pEp)  //%%,noE
 GO(strerror, tEi)
 GO(strerror_l, pEia)
 GO(__strerror_r, tEipL)
@@ -1715,8 +1716,8 @@ GO(__strncat_chk, pEppLL)
 GO(strncmp, iEppL)
 GO(strncpy, pEppL)
 GO(__strncpy_chk, pEppLL)
-GOW(strndup, pEpL)
-GO(__strndup, pEpL)
+GOWM(strndup, pEpL)  //%%,noE
+GOM(__strndup, pEpL)  //%%,noE
 GO(strnlen, LEpL)
 GO(strpbrk, pEpp)
 // __strpbrk_c2
@@ -1935,7 +1936,7 @@ GOM(utimensat, iEippi)  //%noE
 GOWM(utimes, iEEpp)
 //GOW(utmpname, iEp)
 // utmpxname
-GOW(valloc, pEL)
+GOWM(valloc, pEL)  //%%,noE
 GOM(vasprintf, iEEppp) //%%
 GOM(__vasprintf_chk, iEEpipp) //%%
 // vdprintf // Weak

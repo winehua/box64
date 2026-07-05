@@ -1,5 +1,18 @@
 #ifndef __MY_ALIGN32__H_
 #define __MY_ALIGN32__H_
+
+/* OHOS musl: provide glibc-private typedefs used in BOX32 structs */
+#ifndef BOX64_OHOS_GLIBC_TYPES_GUARD
+#define BOX64_OHOS_GLIBC_TYPES_GUARD 1
+#include <sys/types.h>
+#include <sys/statvfs.h>
+typedef uid_t       __uid_t;
+typedef gid_t       __gid_t;
+typedef pid_t       __pid_t;
+typedef fsblkcnt_t  __fsblkcnt64_t;
+typedef fsfilcnt_t  __fsfilcnt64_t;
+#endif
+
 #include <stdint.h>
 #include <net/if.h>
 #include "box32.h"

@@ -1478,9 +1478,12 @@ void convert_obstack_to_32(void* d, void* s)
     dst->object_base = to_ptrv(src->object_base);
     dst->next_free = to_ptrv(src->next_free);
     dst->chunk_limit = to_ptrv(src->chunk_limit);
+    /* OHOS musl: obstack union layout differs from glibc, skip tempptr/chunkfun/freefun */
+#ifndef __MUSL__
     dst->temp.tempptr = to_ptrv(src->temp.tempptr);
     dst->chunkfun = to_ptrv(src->chunkfun);
     dst->freefun = to_ptrv(src->freefun);
+#endif
     dst->extra_arg = to_ptrv(src->extra_arg);
     dst->use_extra_arg = src->use_extra_arg;
     dst->maybe_empty_object = src->maybe_empty_object;
@@ -1496,9 +1499,12 @@ void convert_obstack_to_64(void* d, void* s)
     dst->maybe_empty_object = src->maybe_empty_object;
     dst->use_extra_arg = src->use_extra_arg;
     dst->extra_arg = from_ptrv(src->extra_arg);
+    /* OHOS musl: obstack union layout differs from glibc, skip freefun/chunkfun/tempptr */
+#ifndef __MUSL__
     dst->freefun = from_ptrv(src->freefun);
     dst->chunkfun = from_ptrv(src->chunkfun);
     dst->temp.tempptr = from_ptrv(src->temp.tempptr);
+#endif
     dst->chunk_limit = from_ptrv(src->chunk_limit);
     dst->next_free = from_ptrv(src->next_free);
     dst->object_base = from_ptrv(src->object_base);

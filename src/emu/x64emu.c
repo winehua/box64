@@ -566,6 +566,8 @@ void UnimpOpcode(x64emu_t* emu, int is32bits)
         Peek(emu, 4), Peek(emu, 5), Peek(emu, 6), Peek(emu, 7),
         Peek(emu, 8), Peek(emu, 9), Peek(emu,10), Peek(emu,11),
         Peek(emu,12), Peek(emu,13), Peek(emu,14));
+    fprintf(stderr, "[OHOS-DIAG] UnimpOpcode: ip=%p is32=%d\n", (void*)emu->old_ip, is32bits);
+    fflush(stderr);
 }
 
 void EmuCall(x64emu_t* emu, uintptr_t addr)
