@@ -19,14 +19,7 @@ int box64_hmos_main(int argc, const char **argv, char **env)
     x64emu_t* emu = NULL;
     elfheader_t* elf_header = NULL;
 
-    if (initialize(argc, argv, env, &emu, &elf_header, 0)) {
-        fprintf(stderr, "[OHOS-DIAG] box64 initialize FAILED, returning -1\n");
-            fflush(stderr);
-        return -1;
-    }
+    if (initialize(argc, argv, env, &emu, &elf_header, 0)) return -1;
 
-    int rc = emulate(emu, elf_header);
-    fprintf(stderr, "[OHOS-DIAG] box64 emulate returned rc=%d (0x%x)\n", rc, rc);
-            fflush(stderr);
-    return rc;
+    return emulate(emu, elf_header);
 }

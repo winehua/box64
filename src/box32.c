@@ -30,8 +30,6 @@ static kh_strings_t* const_strings = NULL;
 
 
 void init_hash_helper() {
-    fprintf(stderr, "[OHOS-DIAG] box32 init_hash_helper\n");
-            fflush(stderr);
     hash_from = kh_init(from);
     hash_to = kh_init(to);
     locale_from = kh_init(from);
