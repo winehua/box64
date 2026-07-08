@@ -2163,3 +2163,11 @@ if(TARGET box64)
     target_sources(box64 PRIVATE ${CMAKE_SOURCE_DIR}/src/musl_compat.c)
 endif()
 # =========================================
+
+# OHOS_PATCH_MUSL_BOX32_STUBS_TARGET ====================================
+# box64 可执行(pc 模式)需要和 libbox64.so(pad, 见 1385 行)一样补齐
+# BOX32 引入的 musl stub(getcontext/makecontext/__res_state/__chk_fail 等)。
+if(TARGET box64)
+    target_sources(box64 PRIVATE ${CMAKE_SOURCE_DIR}/src/musl_box32_stubs.c)
+endif()
+# =========================================
