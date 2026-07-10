@@ -5519,6 +5519,10 @@ wrappedlibc:
   - _ITM_RU4
 - UFp:
   - _ITM_RU8
+- fFf:
+  - rintf
+- dFd:
+  - rint
 - lFv:
   - syscall
 - lFi:

@@ -20,6 +20,8 @@ typedef int32_t (*iFp_t)(void*);
 typedef uint8_t (*CFp_t)(void*);
 typedef uint32_t (*uFp_t)(void*);
 typedef uint64_t (*UFp_t)(void*);
+typedef float (*fFf_t)(float);
+typedef double (*dFd_t)(double);
 typedef intptr_t (*lFv_t)(void);
 typedef intptr_t (*lFi_t)(int32_t);
 typedef uintptr_t (*LFL_t)(uintptr_t);
@@ -153,6 +155,8 @@ typedef int32_t (*iFppipppp_t)(void*, void*, int32_t, void*, void*, void*, void*
 	GO(_ITM_RU1, CFp_t) \
 	GO(_ITM_RU4, uFp_t) \
 	GO(_ITM_RU8, UFp_t) \
+	GO(rintf, fFf_t) \
+	GO(rint, dFd_t) \
 	GO(syscall, lFv_t) \
 	GO(__sysconf, lFi_t) \
 	GO(sysconf, lFi_t) \
