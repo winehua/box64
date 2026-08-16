@@ -3311,7 +3311,9 @@ void getLockAddressRange(uintptr_t start, size_t size, uintptr_t addrs[])
 }
 #endif
 
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000   // aarch64 value, NOT x86_64 0x200000
 #endif
@@ -3334,7 +3336,10 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
             addr = find47bitBlock(length);
     }
     #endif
-    /* OHOS_PATCH_BOX32_MMAP_HARD_SEARCH: MAP_32BIT hard fallback */
+#ifndef _WIN32
+    /* OHOS_PATCH_BOX32_MMAP_HARD_SEARCH: MAP_32BIT hard fallback.
+     * OHOS-only: parses /proc/self/maps (no /proc in Windows/wow64 build).
+     * wow64 build uses wine's InternalMmap, which handles low-4GB placement. */
     {
         extern void* box_mmap32_hard_search_ohos(size_t, int, int, int, ssize_t);
         if ((flags & MAP_32BIT) && !(flags & MAP_FIXED) && !addr) {
@@ -3344,6 +3349,7 @@ EXPORT void* box_mmap(void *addr, size_t length, int prot, int flags, int fd, ss
             /* fall through to original logic if hard search exhausted */
         }
     }
+#endif
     void* ret = InternalMmap(addr, length, prot, new_flags, fd, offset);
     if(ret == MAP_FAILED) {
         int saved_errno = errno;
@@ -3414,6 +3420,7 @@ EXPORT int box_munmap(void* addr, size_t length)
     return ret;
 }
 
+#ifndef _WIN32
 /* ============================================================
  * OHOS_PATCH_BOX32_MMAP_HARD_SEARCH (v2)
  *
@@ -3422,6 +3429,9 @@ EXPORT int box_munmap(void* addr, size_t length)
  * then claim with MAP_FIXED.  Confirmed viable by mmap probe.
  *
  * Scanning range: [0x10000000, 0xf0000000).  64KB alignment.
+ *
+ * Windows/wow64 build excludes this: no /proc/self/maps, and wine's
+ * InternalMmap handles low-4GB placement for the i386 guest.
  * ============================================================ */
 
 #include <stdio.h>
@@ -3514,3 +3524,4 @@ void* box_mmap32_hard_search_ohos(size_t length, int prot, int flags,
     return box_maps_search_low4gb(length, prot, flags, fd, offset);
 }
 /* OHOS_PATCH_BOX32_MMAP_HARD_SEARCH END */
+#endif /* !_WIN32 */
