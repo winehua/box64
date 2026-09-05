@@ -3,6 +3,7 @@
  * Copyright 2023 Alexandre Julliard
  */
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <windows.h>
 #include <ntstatus.h>
@@ -27,7 +28,15 @@
 #include "hostext.h"
 #include "sysinfo.h"
 
+#include "dynarec/dynablock_private.h"
+#include "dynarec/dynarec_next.h"
+
 uintptr_t box64_pagesize = 4096;
+
+/* Filled by ntdll unixlib: POSIX mprotect (ohos_mprotect_exec). Used only
+ * while wowbox64_in_host_fault so SMC unprotect skips NtProtectVirtualMemory. */
+int (*wowbox64_unix_mprotect)(void* addr, size_t len, int prot) = NULL;
+int wowbox64_in_host_fault = 0;
 
 uint32_t default_gs = 0x2b;
 uint32_t default_fs = 0;
@@ -55,6 +64,20 @@ static UINT16 DECLSPEC_ALIGN(4096) unxcode[4096 / sizeof(UINT16)];
 
 typedef UINT64 unixlib_handle_t;
 NTSTATUS(WINAPI* __wine_unix_call_dispatcher)(unixlib_handle_t, unsigned int, void*);
+
+/* Must match ntdll/unixlib.h enum ntdll_unix_funcs. */
+#define WOWBOX64_UNIX_OHOS_SET_FAULT 8
+
+#ifndef SEGV_ACCERR
+#define SEGV_ACCERR 2
+#endif
+#ifndef SIGILL
+#define SIGILL 4
+#endif
+#define WOWBOX64_FAULT_NOT_MINE 0
+#define WOWBOX64_FAULT_HANDLED  1
+#define WOWBOX64_FAULT_KIND_RETRY  0
+#define WOWBOX64_FAULT_KIND_EPILOG 1
 
 #define ROUND_ADDR(addr, mask) ((void*)((UINT_PTR)(addr) & ~(UINT_PTR)(mask)))
 #define ROUND_SIZE(addr, size) (((SIZE_T)(size) + ((UINT_PTR)(addr) & page_mask) + page_mask) & ~page_mask)
@@ -232,6 +255,104 @@ void WINAPI BTCpuNotifyUnmapViewOfSection(PVOID addr, ULONG flags)
     invalidate_mapped_section(addr);
 }
 
+/* Consumes Box64 dynarec SMC SIGSEGV. Called from ntdll unix sigchain
+ * BEFORE Wine SEH. Must not be mixed with wine_segv_handler. */
+int wowbox64_handle_host_fault(int sig, int si_code, void* si_addr,
+                               uint64_t* pc_inout, uint64_t* xrip_out,
+                               uint32_t* prot_out, int* kind_out)
+{
+    uintptr_t addr = (uintptr_t)si_addr;
+    uintptr_t pc;
+    uint32_t prot;
+    dynablock_t* db;
+    int ret = WOWBOX64_FAULT_NOT_MINE;
+
+    if (prot_out) *prot_out = 0;
+    if (kind_out) *kind_out = WOWBOX64_FAULT_KIND_RETRY;
+
+    /* ntdll trampoline set x18=TEB. Use unix mprotect, not NtProtect.
+     * native_epilog expects x0=xEmu and x27=xRIP still in the ucontext. */
+    wowbox64_in_host_fault = 1;
+
+    pc = pc_inout ? (uintptr_t)*pc_inout : 0;
+
+    /* After SMC, MarkDynablock patches CALLRET sites to ARCH_UDF (0xcafe).
+     * box64.so consumes that SIGILL; Wine ill_handler would raise SEH and hang.
+     * getX64Address is wrong for callret — guest RIP is already in x27. */
+    if (sig == SIGILL) {
+        db = pc ? FindDynablockFromNativeAddress((void*)pc) : NULL;
+        if (!db) {
+            ret = WOWBOX64_FAULT_NOT_MINE;
+            goto out;
+        }
+        {
+            uintptr_t x64pc = (xrip_out && *xrip_out) ? (uintptr_t)*xrip_out : getX64Address(db, pc);
+            dynablock_leave_runtime(db);
+            if (xrip_out) *xrip_out = x64pc;
+            if (pc_inout) *pc_inout = (uint64_t)(uintptr_t)native_epilog;
+            if (kind_out) *kind_out = WOWBOX64_FAULT_KIND_EPILOG;
+            ret = WOWBOX64_FAULT_HANDLED;
+            goto out;
+        }
+    }
+
+    if (si_addr && si_code == SEGV_ACCERR) {
+        prot = getProtection(addr);
+        if (prot_out) *prot_out = prot;
+
+        if (prot & PROT_DYNAREC) {
+            unprotectDB(addr, 1, 1);
+            CheckHotPage(addr, prot);
+
+            db = pc ? FindDynablockFromNativeAddress((void*)pc) : NULL;
+            if (db) {
+                int db_need_test = !BOX64ENV(dynarec_dirty) ? getNeedTest((uintptr_t)db->x64_addr) : 0;
+                if ((addr >= (uintptr_t)db->x64_addr && addr < (uintptr_t)db->x64_addr + db->x64_size) || db_need_test) {
+                    uintptr_t x64pc = getX64Address(db, pc);
+                    dynablock_leave_runtime(db);
+                    if (xrip_out) *xrip_out = x64pc;
+                    if (pc_inout) *pc_inout = (uint64_t)(uintptr_t)native_epilog;
+                    if (kind_out) *kind_out = WOWBOX64_FAULT_KIND_EPILOG;
+                    ret = WOWBOX64_FAULT_HANDLED;
+                    goto out;
+                }
+            }
+            ret = WOWBOX64_FAULT_HANDLED;
+            goto out;
+        }
+
+        if (prot & PROT_DYNAREC_R) {
+            /* Write was never permitted for the guest. Drop tracking, then Wine SEH. */
+            unprotectDB(addr, 1, 1);
+            if (xrip_out) *xrip_out = 0;
+            ret = WOWBOX64_FAULT_NOT_MINE;
+            goto out;
+        }
+    }
+
+    /* JIT PC but not SMC: leave the block. Raising Wine SEH from this POSIX
+     * handler uses the dynarec stack as an ARM64 exception frame and hangs
+     * inside KiUserExceptionDispatcher (Heaven white-screen after SIGILL). */
+    db = pc ? FindDynablockFromNativeAddress((void*)pc) : NULL;
+    if (db) {
+        uintptr_t x64pc = getX64Address(db, pc);
+        if (!x64pc && xrip_out) x64pc = (uintptr_t)*xrip_out;
+        dynablock_leave_runtime(db);
+        if (xrip_out) *xrip_out = x64pc;
+        if (pc_inout) *pc_inout = (uint64_t)(uintptr_t)native_epilog;
+        if (kind_out) *kind_out = WOWBOX64_FAULT_KIND_EPILOG;
+        ret = WOWBOX64_FAULT_HANDLED;
+        goto out;
+    }
+
+    if (xrip_out) *xrip_out = 0;
+    ret = WOWBOX64_FAULT_NOT_MINE;
+
+out:
+    wowbox64_in_host_fault = 0;
+    return ret;
+}
+
 NTSTATUS WINAPI BTCpuProcessInit(void)
 {
     printf_log(LOG_DEBUG, "BTCpuProcessInit()\n");
@@ -284,6 +405,22 @@ NTSTATUS WINAPI BTCpuProcessInit(void)
     LdrGetDllHandle(NULL, 0, &str, &module);
     p__wine_unix_call_dispatcher = RtlFindExportedRoutineByName(module, "__wine_unix_call_dispatcher");
     __wine_unix_call_dispatcher = *p__wine_unix_call_dispatcher;
+    {
+        unixlib_handle_t* p__wine_unixlib_handle;
+        p__wine_unixlib_handle = RtlFindExportedRoutineByName(module, "__wine_unixlib_handle");
+        if (__wine_unix_call_dispatcher && p__wine_unixlib_handle && *p__wine_unixlib_handle) {
+            struct { void* handler; void** p_unix_mprotect; } params;
+            NTSTATUS st;
+            params.handler = (void*)wowbox64_handle_host_fault;
+            params.p_unix_mprotect = (void**)&wowbox64_unix_mprotect;
+            st = __wine_unix_call_dispatcher(*p__wine_unixlib_handle, WOWBOX64_UNIX_OHOS_SET_FAULT, &params);
+            printf_log(LOG_INFO, "[wowbox64] registered host fault handler status=%08x unix_mprotect=%p\n",
+                       (unsigned)st, (void*)wowbox64_unix_mprotect);
+            printf_log(LOG_INFO, "[wowbox64] GetSegmentBase FS=WowTebOffset\n");
+        } else {
+            printf_log(LOG_INFO, "[wowbox64] cannot register host fault handler\n");
+        }
+    }
 
     RtlInitializeCriticalSection(&box64_context.mutex_dyndump);
     RtlInitializeCriticalSection(&box64_context.mutex_trace);
@@ -307,20 +444,19 @@ static uint8_t box64_is_addr_in_jit(void* addr)
 NTSTATUS WINAPI BTCpuResetToConsistentState(EXCEPTION_POINTERS* ptrs)
 {
     printf_log(LOG_DEBUG, "BTCpuResetToConsistentState(%p)\n", ptrs);
-    x64emu_t* emu = NtCurrentTeb()->TlsSlots[WOW64_TLS_EMU];
     EXCEPTION_RECORD* rec = ptrs->ExceptionRecord;
     CONTEXT* ctx = ptrs->ContextRecord;
 
-    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
-        dynablock_t* db = NULL;
-        void* addr = NULL;
-        uint32_t prot;
+    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters >= 2) {
+        void* addr = ULongToPtr(rec->ExceptionInformation[1]);
+        uint32_t prot = addr ? getProtection((uintptr_t)addr) : 0;
 
-        if (rec->NumberParameters == 2 && rec->ExceptionInformation[0] == 1)
-            addr = ULongToPtr(rec->ExceptionInformation[1]);
-
-        if (addr) {
-            unprotectDB((uintptr_t)addr, 1, 1); // unprotect 1 byte... But then, the whole page will be unprotected
+        /* box64.so recovers SEGV_ACCERR on PROT_DYNAREC in its Unix handler.
+         * wowbox64 prefers wowbox64_handle_host_fault from OHOS sigchain so
+         * the fault never becomes a Windows exception. This SEH path remains
+         * a fallback if a dynarec ACCERR still reaches KiUserExceptionDispatcher. */
+        if (addr && ((rec->ExceptionInformation[0] == 1) || (prot & PROT_DYNAREC))) {
+            unprotectDB((uintptr_t)addr, 1, 1);
             NtContinue(ctx, FALSE);
         }
     }

@@ -71,6 +71,18 @@ pthread_mutex_t     mutex_blocks;
 pthread_mutex_t     mutex_prot;
 pthread_mutex_t     mutex_blocks;
 #endif
+
+#ifdef _WIN32
+/* wowbox64.c: unix ohos_mprotect_exec, only while handling a POSIX SMC fault. */
+extern int (*wowbox64_unix_mprotect)(void *addr, size_t len, int prot);
+extern int wowbox64_in_host_fault;
+#define BOX64_MPROTECT(addr, len, prot) \
+    ((wowbox64_in_host_fault && wowbox64_unix_mprotect) \
+         ? wowbox64_unix_mprotect((addr), (len), (prot)) \
+         : mprotect((addr), (len), (prot)))
+#else
+#define BOX64_MPROTECT(addr, len, prot) mprotect((addr), (len), (prot))
+#endif
 //#define TRACE_MEMSTAT
 rbtree_t* memprot = NULL;
 int have48bits = 0;
@@ -2428,7 +2440,13 @@ void unprotectDB(uintptr_t addr, size_t size, int mark)
                 prot&=~PROT_DYN;
                 if(mark)
                     cleanDBFromAddressRange(cur, bend-cur, 0);
-                mprotect((void*)cur, bend-cur, prot);
+#ifdef _WIN32
+                /* wowbox64: guest pages are data for the decoder. Native
+                 * execution is in the JIT mapping. Restoring RWX is rejected
+                 * by W^X kernels (OHOS); SMC unprotect only needs WRITE. */
+                prot = (prot & ~PROT_EXEC) | PROT_READ | PROT_WRITE;
+#endif
+                BOX64_MPROTECT((void*)cur, bend-cur, prot);
             } else if(prot&PROT_DYNAREC_R) {
                 if(mark)
                     cleanDBFromAddressRange(cur, bend-cur, 0);
@@ -2468,7 +2486,10 @@ void neverprotectDB(uintptr_t addr, size_t size, int mark)
                 prot&=~PROT_DYN;
                 if(mark)
                     cleanDBFromAddressRange(cur, bend-cur, (mark==2)?2:0);
-                mprotect((void*)cur, bend-cur, prot);
+#ifdef _WIN32
+                prot = (prot & ~PROT_EXEC) | PROT_READ | PROT_WRITE;
+#endif
+                BOX64_MPROTECT((void*)cur, bend-cur, prot);
             } else if(prot&PROT_DYNAREC_R) {
                 if(mark)
                     cleanDBFromAddressRange(cur, bend-cur, (mark==2)?2:0);

@@ -32,13 +32,24 @@ int IsBridgeSignature(char s, char c)
 
 void* GetSeg43Base(void* emu)
 {
-    return NULL;
+    (void)emu;
+    /* Wine WOW64 has no Linux TLS descriptor 0x43; FS is the 32-bit TEB. */
+    return (void*)calculate_fs();
 }
 
 void* GetSegmentBase(void* emu, uint32_t desc)
 {
-    printf_log(LOG_NONE, "GetSegmentBase does not apply to Wine dlls\n");
-    return NULL;
+    (void)emu;
+    if (!desc)
+        return NULL;
+    /* Wine WOW64 has no GDT/LDT. The only real segment base is the 32-bit TEB
+     * (TEB.WowTebOffset), already installed by BTCpuSimulate via calculate_fs().
+     *
+     * Dynarec MOV/POP FS and the interpreter FS: prefix call GetSegmentBaseEmu,
+     * which used to stamp this NULL over segs_offs[_FS]. Heaven.exe then died
+     * on the next fs:[disp] (Unhandled page fault at 7AA4FAD8, addr=0) before
+     * DXVK even loaded. */
+    return (void*)calculate_fs();
 }
 
 void* EmuFork(void* emu, int forktype) { return NULL; }
