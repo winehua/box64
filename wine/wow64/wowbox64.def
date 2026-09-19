@@ -13,5 +13,6 @@ EXPORTS
   BTCpuResetToConsistentState
   BTCpuSetContext
   BTCpuSimulate
+  BTCpuSuspendLocalThread
   BTCpuThreadInit
   __wine_get_unix_opcode

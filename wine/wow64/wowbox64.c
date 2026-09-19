@@ -330,21 +330,13 @@ int wowbox64_handle_host_fault(int sig, int si_code, void* si_addr,
         }
     }
 
-    /* JIT PC but not SMC: leave the block. Raising Wine SEH from this POSIX
-     * handler uses the dynarec stack as an ARM64 exception frame and hangs
-     * inside KiUserExceptionDispatcher (Heaven white-screen after SIGILL). */
-    db = pc ? FindDynablockFromNativeAddress((void*)pc) : NULL;
-    if (db) {
-        uintptr_t x64pc = getX64Address(db, pc);
-        if (!x64pc && xrip_out) x64pc = (uintptr_t)*xrip_out;
-        dynablock_leave_runtime(db);
-        if (xrip_out) *xrip_out = x64pc;
-        if (pc_inout) *pc_inout = (uint64_t)(uintptr_t)native_epilog;
-        if (kind_out) *kind_out = WOWBOX64_FAULT_KIND_EPILOG;
-        ret = WOWBOX64_FAULT_HANDLED;
-        goto out;
-    }
-
+    /* A JIT PC alone does not identify an SMC fault. In particular, CEF can
+     * legitimately fault on an unmapped/guard page while executing generated
+     * code. Sending that fault to native_epilog merely retries the same
+     * instruction forever (the OHOS log shows a tight SIGSEGV/SMC loop at a
+     * fixed address), and prevents Wine from constructing the real SEH record.
+     * Only the two cases above are owned by this handler; all other host faults
+     * must continue through Wine's normal signal/SEH path. */
     if (xrip_out) *xrip_out = 0;
     ret = WOWBOX64_FAULT_NOT_MINE;
 
@@ -473,6 +465,28 @@ NTSTATUS WINAPI BTCpuSetContext(HANDLE thread, HANDLE process, void* unknown, WO
 {
     printf_log(LOG_DEBUG, "BTCpuSetContext(%p, %p, %p, %p)\n", thread, process, unknown, ctx);
     return NtSetInformationThread(thread, ThreadWow64Context, ctx, sizeof(*ctx));
+}
+
+/* Wine's wow64 layer calls this entry without a NULL check
+ * (dlls/wow64/syscall.c: Wow64SuspendLocalThread, and
+ * dlls/ntdll/signal_arm64.c: RtlWow64SuspendThread/suspend_remote_breakin),
+ * so a backend that does not export it tail-jumps to address 0 as soon as
+ * ntdll needs a wow64 thread suspension.  That killed the 32 bit Steam browser
+ * process before it could spawn any --type=renderer child.
+ *
+ * FEX additionally flushes its JIT context into the WOW64 cpu area here, because
+ * its runtime can be re-entered while a thread is suspended
+ * (see FEX Source/Windows/WOW64/Module.cpp, BTCpuSuspendLocalThread).
+ * box64 keeps the guest state in the emu struct and commits it to the cpu area at
+ * every interruption (BTCpuSimulate / EmitInterruptionImpl), and it never
+ * re-enters a dynablock for a stopped host thread, so stopping the host thread is
+ * all this contract needs on this backend. */
+NTSTATUS WINAPI NtSuspendThread(HANDLE thread, ULONG* count);
+
+NTSTATUS WINAPI BTCpuSuspendLocalThread(HANDLE thread, ULONG* count)
+{
+    printf_log(LOG_DEBUG, "BTCpuSuspendLocalThread(%p)\n", thread);
+    return NtSuspendThread(thread, count);
 }
 
 void WINAPI BTCpuSimulate(void)
