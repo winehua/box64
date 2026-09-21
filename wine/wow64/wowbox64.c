@@ -330,13 +330,27 @@ int wowbox64_handle_host_fault(int sig, int si_code, void* si_addr,
         }
     }
 
-    /* A JIT PC alone does not identify an SMC fault. In particular, CEF can
-     * legitimately fault on an unmapped/guard page while executing generated
-     * code. Sending that fault to native_epilog merely retries the same
-     * instruction forever (the OHOS log shows a tight SIGSEGV/SMC loop at a
-     * fixed address), and prevents Wine from constructing the real SEH record.
-     * Only the two cases above are owned by this handler; all other host faults
-     * must continue through Wine's normal signal/SEH path. */
+    /* A JIT PC means the fault happened inside generated code. Leave the block
+     * through native_epilog so the guest sees the fault with a proper guest
+     * context; raising Wine SEH from this POSIX handler instead builds an ARM64
+     * exception record on the dynarec stack and hangs in
+     * KiUserExceptionDispatcher - the observed 32 bit white screen (PAL4 spins
+     * on a read fault inside the JIT with no present, Heaven stalls the same
+     * way). This matches the arm64 reference branch rule
+     * "SIGSEGV with PC in dynablock and not SMC -> epilog, never
+     * wine_segv_handler". */
+    db = pc ? FindDynablockFromNativeAddress((void*)pc) : NULL;
+    if (db) {
+        uintptr_t x64pc = getX64Address(db, pc);
+        if (!x64pc && xrip_out && *xrip_out) x64pc = (uintptr_t)*xrip_out;
+        dynablock_leave_runtime(db);
+        if (xrip_out) *xrip_out = x64pc;
+        if (pc_inout) *pc_inout = (uint64_t)(uintptr_t)native_epilog;
+        if (kind_out) *kind_out = WOWBOX64_FAULT_KIND_EPILOG;
+        ret = WOWBOX64_FAULT_HANDLED;
+        goto out;
+    }
+
     if (xrip_out) *xrip_out = 0;
     ret = WOWBOX64_FAULT_NOT_MINE;
 
