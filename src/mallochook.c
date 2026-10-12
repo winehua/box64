@@ -1,10 +1,11 @@
-/* OHOS_PATCH_DISABLE_MALLOCHOOK -- diagnostic passthrough.
+/* OHOS_PATCH_DISABLE_MALLOCHOOK -- production passthrough.
  *
- * 原始 mallochook 用一组 box64 内部内存池 + spin lock 接管所有
- * malloc/free, 怀疑它在 OHOS musl 上的 ctor 阶段死循环.
+ * box64 原版 mallochook 用一组内部内存池 + spin lock 接管所有
+ * malloc/free, 在 OHOS musl 上于 ctor 阶段死循环, 故整体替换为
+ * 直通 libc 的实现: 所有 box_* 函数直接转给 libc.
  *
- * 此版本完全绕开内存池逻辑: 所有 box_* 函数直接转给 libc.
- * 仅用于定位启动期死循环, 不可用于真正翻译 x86 程序.
+ * 已知行为差异 (长期): 不再用强符号覆盖 malloc/free -- guest 自带
+ * tcmalloc 类分配器不会被拦截, box_malloc_usable_size 恒返回 0.
  */
 #include <limits.h>
 #include <stdlib.h>
@@ -25,16 +26,15 @@ char *box_strndup(const char *s, size_t n)  { return s ? strndup(s, n) : NULL; }
 void   box_free_internal(void *p)              { free(p); }
 size_t box_malloc_usable_size(void *p)         { (void)p; return 0; }
 
-/* ---------- box64 启停 hook (诊断版本: 全部空操作) ---------- */
-/* 原版会安装/卸载全局 malloc 拦截器, 这里全部 no-op,
- * 让 box64 主流程可以跑下去. */
+/* ---------- box64 启停 hook (直通实现: 全部空操作) ---------- */
+/* 原版在此安装/卸载全局 malloc 拦截器, 直通实现为 no-op. */
 void init_malloc_hook(void)  {}
 void startMallocHook(void)   {}
 void endMallocHook(void)     {}
 
 /* checkHookedSymbols: 原版用于扫描刚加载的 ELF 的 dynsym 表,
  * 把命中我们感兴趣的符号 (malloc/free 等) 替换成 box_* 实现.
- * 诊断版本不需要做任何事 -- 我们已经不再 hook 全局 malloc.
+ * 直通实现不再 hook 全局 malloc, 此函数为 no-op.
  * 第二参数原型一般是 elfheader_t* / SymbolMap*, 用 void* 兼容.
  */
 void checkHookedSymbols(void *symbols, void *h)
